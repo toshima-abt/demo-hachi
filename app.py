@@ -22,6 +22,7 @@ except Exception:
 # この部分をファイルから読み込むようにすると、より管理しやすくなります。
 TABLE_SCHEMA = """
 CREATE TABLE business_stats("year" INTEGER, town_name VARCHAR, industry_name VARCHAR, num_offices INTEGER, num_employees INTEGER);
+CREATE TABLE population("year" BIGINT, town_name VARCHAR, num_households BIGINT, num_population BIGINT, num_male BIGINT, num_female BIGINT);
 """
 
 COLUMN_DEFINITIONS = """
@@ -30,6 +31,10 @@ town_name:町名
 industry_name:事業種別
 num_offices:事業所数
 num_employees:事業者数
+num_households:世帯数
+num_population:人口数
+num_male:男性数
+num_female:女性数
 """
 
 INDUSTRY_NAMES= """
