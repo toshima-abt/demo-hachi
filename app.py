@@ -140,8 +140,142 @@ def execute_query(sql_query):
         st.error(f"SQLの実行に失敗しました: {e}")
         return None
 
+def calculate_derived_metrics(business_df, population_df, town_name=None, year=None):
+    """世帯数と事業所数から派生した指標を計算する"""
+    try:
+        # データの結合
+        merged_df = pd.merge(
+            business_df,
+            population_df[['year', 'town_name', 'num_households', 'num_population']],
+            on=['year', 'town_name'],
+            how='inner'
+        )
+
+        if merged_df.empty:
+            return None
+
+        # フィルタリング（町名・年度指定時）
+        if town_name:
+            merged_df = merged_df[merged_df['town_name'] == town_name]
+        if year:
+            merged_df = merged_df[merged_df['year'] == year]
+
+        if merged_df.empty:
+            return None
+
+        # 派生指標の計算
+        metrics_df = merged_df.copy()
+
+        # 1. 事業所密度（事業所数 ÷ 世帯数）
+        metrics_df['office_density_per_household'] = metrics_df['num_offices'] / metrics_df['num_households']
+
+        # 2. 従業者比率（従業者数 ÷ 人口数）
+        metrics_df['employee_ratio_per_population'] = metrics_df['num_employees'] / metrics_df['num_population']
+
+        # 3. 事業所規模（従業者数 ÷ 事業所数）
+        metrics_df['office_size'] = metrics_df['num_employees'] / metrics_df['num_offices'].replace(0, 1)  # ゼロ除算回避
+
+        # 4. 世帯あたり事業所数（事業所数 ÷ 世帯数）
+        metrics_df['offices_per_household'] = metrics_df['num_offices'] / metrics_df['num_households']
+
+        # 5. 人口あたり事業所数（事業所数 ÷ 人口数）
+        metrics_df['offices_per_population'] = metrics_df['num_offices'] / metrics_df['num_population']
+
+        return metrics_df
+
+    except Exception as e:
+        st.error(f"指標の計算に失敗しました: {e}")
+        return None
+
+def generate_metric_interpretation(metrics_df, question_type="general"):
+    """指標の解釈コメントを生成する"""
+    try:
+        if metrics_df is None or metrics_df.empty:
+            return "解釈できるデータがありません。"
+
+        # 基本統計の計算
+        avg_density = metrics_df['office_density_per_household'].mean()
+        avg_employee_ratio = metrics_df['employee_ratio_per_population'].mean()
+        avg_office_size = metrics_df['office_size'].mean()
+
+        # 解釈コメントの生成
+        interpretations = []
+
+        # 事業所密度の解釈
+        if avg_density > 0.1:
+            interpretations.append(f"事業所密度（{avg_density:.3f}）が高い水準を示しており、各世帯に対して多くの事業所が存在することを表しています。")
+        elif avg_density > 0.05:
+            interpretations.append(f"事業所密度（{avg_density:.3f}）は平均的な水準です。各世帯に対して適度な事業所数が配置されています。")
+        else:
+            interpretations.append(f"事業所密度（{avg_density:.3f}）は低い水準です。各世帯に対して事業所数が少ない状況です。")
+
+        # 従業者比率の解釈
+        if avg_employee_ratio > 0.3:
+            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）が高く、人口に対して多くの人が事業に従事している活発な経済活動を示しています。")
+        elif avg_employee_ratio > 0.2:
+            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）は標準的な水準です。バランスの取れた雇用状況です。")
+        else:
+            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）は低い水準です。経済活動が比較的少ない状況です。")
+
+        # 事業所規模の解釈
+        if avg_office_size > 10:
+            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）が大きく、中規模以上の事業所が多い傾向が見られます。")
+        elif avg_office_size > 5:
+            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）は標準的で、小規模事業所を中心に構成されています。")
+        else:
+            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）が小さく、零細事業所が多い状況です。")
+
+        return " ".join(interpretations)
+
+    except Exception as e:
+        return f"解釈の生成に失敗しました: {e}"
+
+def get_population_data():
+    """人口データを取得する"""
+    try:
+        with duckdb.connect('hachi_office.duckdb', read_only=True) as con:
+            df = con.execute("SELECT * FROM population").fetchdf()
+        return df
+    except Exception as e:
+        st.error(f"人口データの取得に失敗しました: {e}")
+        return None
+
+def detect_metric_question(question):
+    """質問が世帯数・事業所数関連の指標を求めているかを判定する"""
+    metric_keywords = [
+        '世帯数', '事業所数', '従業者数', '人口', '密度', '比率', '割合',
+        '事業所密度', '従業者比率', '事業所規模', '世帯あたり', '人口あたり',
+        'num_households', 'num_offices', 'num_employees', 'num_population'
+    ]
+
+    question_lower = question.lower()
+    return any(keyword in question_lower for keyword in metric_keywords)
+
+def get_business_data_for_metrics(year=None, town_name=None, industry_name=None):
+    """指標計算用の事業者データを取得する"""
+    try:
+        with duckdb.connect('hachi_office.duckdb', read_only=True) as con:
+            query = "SELECT * FROM business_stats"
+            conditions = []
+
+            if year:
+                conditions.append(f"year = {year}")
+            if town_name:
+                conditions.append(f"town_name = '{town_name}'")
+            if industry_name:
+                conditions.append(f"industry_name = '{industry_name}'")
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            df = con.execute(query).fetchdf()
+        return df
+    except Exception as e:
+        st.error(f"事業者データの取得に失敗しました: {e}")
+        return None
+
 # --- UI部分 ---
-user_question = st.text_input("分析したい内容を質問してください:", "2021年の町名別で、建設業の事業所数が多いトップ5を教えて")
+user_question = st.text_input("分析したい内容を質問してください:", "2021年の事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を町名別に比較して")
 
 if st.button("分析を実行"):
     if user_question:
@@ -159,6 +293,77 @@ if st.button("分析を実行"):
                 st.success("クエリ結果")
                 st.dataframe(result_df)
 
+                # --- 派生指標の計算と解釈コメントの表示 ---
+                if detect_metric_question(user_question):
+                    with st.spinner("派生指標を計算中..."):
+                        # 人口データを取得
+                        population_df = get_population_data()
+
+                        if population_df is not None:
+                            # 事業者データを取得（元のクエリ結果に基づいてフィルタリング）
+                            business_df = get_business_data_for_metrics()
+
+                            if business_df is not None:
+                                # 派生指標を計算
+                                metrics_df = calculate_derived_metrics(business_df, population_df)
+
+                                if metrics_df is not None and not metrics_df.empty:
+                                    st.subheader("📊 派生指標分析")
+
+                                    # 指標の概要を表示
+                                    col1, col2, col3 = st.columns(3)
+
+                                    with col1:
+                                        avg_density = metrics_df['office_density_per_household'].mean()
+                                        st.metric(
+                                            label="平均事業所密度",
+                                            value=f"{avg_density:.4f}",
+                                            help="事業所数 ÷ 世帯数"
+                                        )
+
+                                    with col2:
+                                        avg_employee_ratio = metrics_df['employee_ratio_per_population'].mean()
+                                        st.metric(
+                                            label="平均従業者比率",
+                                            value=f"{avg_employee_ratio:.4f}",
+                                            help="従業者数 ÷ 人口数"
+                                        )
+
+                                    with col3:
+                                        avg_office_size = metrics_df['office_size'].mean()
+                                        st.metric(
+                                            label="平均事業所規模",
+                                            value=f"{avg_office_size:.1f}人",
+                                            help="従業者数 ÷ 事業所数"
+                                        )
+
+                                    # 解釈コメントを表示
+                                    interpretation = generate_metric_interpretation(metrics_df)
+                                    st.info(f"💡 解釈コメント: {interpretation}")
+
+                                    # 詳細な指標テーブルを表示
+                                    if st.checkbox("詳細な指標データを表示"):
+                                        st.dataframe(metrics_df[[
+                                            'year', 'town_name', 'num_offices', 'num_households',
+                                            'office_density_per_household', 'employee_ratio_per_population',
+                                            'office_size'
+                                        ]].round(4))
+
+                                        # 指標の相関関係を可視化
+                                        if len(metrics_df) > 1:
+                                            st.subheader("相関関係の可視化")
+                                            correlation_cols = ['office_density_per_household', 'employee_ratio_per_population', 'office_size']
+                                            corr_matrix = metrics_df[correlation_cols].corr()
+
+                                            st.dataframe(corr_matrix.style.format("{:.3f}"))
+
+                                else:
+                                    st.warning("派生指標を計算できる十分なデータがありません。")
+                            else:
+                                st.warning("事業者データの取得に失敗しました。")
+                        else:
+                            st.warning("人口データの取得に失敗しました。")
+
                 # --- 簡単な可視化 ---
                 if not result_df.empty and len(result_df.columns) >= 2:
                     try:
@@ -170,7 +375,7 @@ if st.button("分析を実行"):
                                 category_col = col
                             elif pd.api.types.is_numeric_dtype(result_df[col]) and value_col is None:
                                 value_col = col
-                        
+
                         if category_col and value_col:
                             st.bar_chart(result_df.set_index(category_col)[value_col])
                         else:
