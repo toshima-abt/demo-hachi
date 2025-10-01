@@ -4,7 +4,7 @@
 
 GoogleのGemini APIを利用して、ユーザーの質問をDuckDBで実行可能なSQLクエリに変換し、データベースから取得した結果を表示します。
 
-![アプリのスクリーンショットをここに挿入](https://via.placeholder.com/800x400.png?text=Application+Screenshot)
+![アプリのスクリーンショット](images/hachi_screenshot.png)
 
 ## 主な機能
 
