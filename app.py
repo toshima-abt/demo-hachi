@@ -2,13 +2,18 @@ import streamlit as st
 import duckdb
 import pandas as pd
 import google.generativeai as genai
-import os
+from typing import Optional, Tuple
+import logging
+
+# ロギング設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- 初期設定 ---
 st.set_page_config(page_title="八王子市 事業者数分析", layout="wide")
-st.title("自然言語で八王子市の事業者データを分析")
+st.title("🏢 自然言語で八王子市の事業者データを分析")
 
-with st.expander("使い方とデータについて"):
+with st.expander("📘 使い方とデータについて"):
     st.markdown("""
     このアプリでは、八王子市の事業者に関する統計データについて、自然言語で質問することができます。
     AIがあなたの質問を解釈してSQLクエリを生成し、データベースから結果を取得・表示します。
@@ -16,9 +21,10 @@ with st.expander("使い方とデータについて"):
     **利用可能なデータ**
     - **事業者統計データ (`business_stats`)**:
         - **対応年度**: 2015年～2024年
-        - **事業種別**: 農林漁業, 鉱業_採石業_砂利採取業, 建設業, 製造業, 電気･ガス･熱供給･水道業, 情報通信業, 運輸業_郵便業, 卸売業_小売業, 金融業_保険業, 不動産業_物品賃貸業, 学術研究_専門･技術サービス業, 宿泊業_飲食サービス業, 生活関連サービス業_娯楽業, 教育_学習支援業, 医療_福祉, 複合サービス事業, サービス業（他に分類されないもの）, 公務（他に分類されるものを除く）
+        - **事業種別**: 農林漁業, 建設業, 製造業, 情報通信業, 卸売業_小売業, 宿泊業_飲食サービス業, 医療_福祉など18業種
+        - **カラム**: 年度、町名、事業種別、事業所数、従業者数
     - **人口統計データ (`population`)**:
-        - 年度、町名、世帯数、人口数、男性数、女性数
+        - **カラム**: 年度、町名、世帯数、人口数、男性数、女性数
 
     **質問の例**
     - `2021年の町名別で、建設業の事業所数が多いトップ5を教えて`
@@ -28,71 +34,32 @@ with st.expander("使い方とデータについて"):
 
     **ご注意**
     - AIが生成するSQLは必ずしも正確ではありません。意図した通りの結果が得られない場合は、質問の仕方を変えてみてください。
-    - 複雑すぎる質問には答えられない場合があります。
     """)
 
-
-# Google Gemini APIキーの設定
-# Streamlit Community Cloudにデプロイする際は、Secretsに設定します。
-try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except Exception:
-    st.error("APIキーが設定されていません。StreamlitのSecretsに 'GOOGLE_API_KEY' を設定してください。")
-    st.stop()
-
-
-# --- プロンプトのテンプレート作成 ---
-# データベースのスキーマとカラムの日本語説明をLLMに提供する
-# この部分をファイルから読み込むようにすると、より管理しやすくなります。
+# --- 定数定義 ---
 TABLE_SCHEMA = """
 CREATE TABLE business_stats("year" INTEGER, town_name VARCHAR, industry_name VARCHAR, num_offices INTEGER, num_employees INTEGER);
 CREATE TABLE population("year" BIGINT, town_name VARCHAR, num_households BIGINT, num_population BIGINT, num_male BIGINT, num_female BIGINT);
 """
 
 COLUMN_DEFINITIONS = """
-year:年度
-town_name:町名
-industry_name:事業種別
-num_offices:事業所数
-num_employees:事業者数
-num_households:世帯数
-num_population:人口数
-num_male:男性数
-num_female:女性数
+year: 年度
+town_name: 町名
+industry_name: 事業種別
+num_offices: 事業所数
+num_employees: 従業者数
+num_households: 世帯数
+num_population: 人口数
+num_male: 男性数
+num_female: 女性数
 """
 
-INDUSTRY_NAMES= """
-農林漁業
-鉱業_採石業_砂利採取業
-建設業
-製造業
-電気･ガス･熱供給･水道業
-情報通信業
-運輸業_郵便業
-卸売業_小売業
-金融業_保険業
-不動産業_物品賃貸業
-学術研究_専門･技術サービス業
-宿泊業_飲食サービス業
-生活関連サービス業_娯楽業
-教育_学習支援業
-医療_福祉
-複合サービス事業
-サービス業（他に分類されないもの）
+INDUSTRY_NAMES = """
+農林漁業, 鉱業_採石業_砂利採取業, 建設業, 製造業, 電気･ガス･熱供給･水道業, 
+情報通信業, 運輸業_郵便業, 卸売業_小売業, 金融業_保険業, 不動産業_物品賃貸業, 
+学術研究_専門･技術サービス業, 宿泊業_飲食サービス業, 生活関連サービス業_娯楽業, 
+教育_学習支援業, 医療_福祉, 複合サービス事業, サービス業（他に分類されないもの）, 
 公務（他に分類されるものを除く）
-"""
-
-YEARS = """
-2015
-2016
-2017
-2018
-2019
-2020
-2021
-2022
-2023
-2024
 """
 
 PROMPT_TEMPLATE = f"""
@@ -105,44 +72,84 @@ SQLクエリのみを生成し、他の説明文は含めないでください�
 ### カラム情報
 {COLUMN_DEFINITIONS}
 
-### 事業種別
+### 利用可能な事業種別
 {INDUSTRY_NAMES}
 
-### 年度
-{YEARS}
+### 対応年度
+2015年～2024年
+
+### 重要なルール
+- SELECT文のみを生成してください（INSERT/UPDATE/DELETE禁止）
+- LIMIT句を適切に使用してください（トップ5なら LIMIT 5）
+- 日本語のカラム名は英語名に変換してください（例: 事業所数 → num_offices）
 
 ### ユーザーの質問
 {{user_question}}
 
-### SQLクエリ
+### SQLクエリ（SQLのみ出力、説明不要）
 """
 
-# --- 関数定義 ---
-def generate_sql(question):
-    """ユーザーの質問からSQLを生成する"""
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    prompt = PROMPT_TEMPLATE.format(user_question=question)
+# --- セッション状態での接続管理 ---
+@st.cache_resource
+def get_db_connection():
+    """データベース接続をキャッシュして再利用"""
     try:
+        return duckdb.connect('hachi_office.duckdb', read_only=True)
+    except Exception as e:
+        logger.error(f"データベース接続エラー: {e}")
+        return None
+
+# --- API設定 ---
+try:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+except Exception as e:
+    st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsに 'GOOGLE_API_KEY' を設定してください。")
+    logger.error(f"API設定エラー: {e}")
+    st.stop()
+
+# --- 関数定義 ---
+def generate_sql(question: str) -> Optional[str]:
+    """ユーザーの質問からSQLを生成する"""
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        prompt = PROMPT_TEMPLATE.format(user_question=question)
         response = model.generate_content(prompt)
-        sql_query = response.text.strip().replace("```sql", "").replace("```", "")
+        sql_query = response.text.strip().replace("```sql", "").replace("```", "").strip()
+        logger.info(f"生成されたSQL: {sql_query}")
         return sql_query
     except Exception as e:
-        st.error(f"SQLの生成に失敗しました: {e}")
+        st.error(f"❌ SQLの生成に失敗しました: {e}")
+        logger.error(f"SQL生成エラー: {e}")
         return None
 
-def execute_query(sql_query):
+def execute_query(sql_query: str) -> Optional[pd.DataFrame]:
     """DuckDBでSQLを実行し、結果をDataFrameで返す"""
     try:
-        with duckdb.connect('hachi_office.duckdb', read_only=True) as con:
-            df = con.execute(sql_query).fetchdf()
+        con = get_db_connection()
+        if con is None:
+            st.error("データベース接続に失敗しました")
+            return None
+        
+        # 安全性チェック（基本的なSQLインジェクション対策）
+        dangerous_keywords = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE']
+        if any(keyword in sql_query.upper() for keyword in dangerous_keywords):
+            st.error("⚠️ 危険なSQL操作が検出されました")
+            return None
+        
+        df = con.execute(sql_query).fetchdf()
+        logger.info(f"クエリ実行成功: {len(df)}行取得")
         return df
     except Exception as e:
-        st.error(f"SQLの実行に失敗しました: {e}")
+        st.error(f"❌ SQLの実行に失敗しました: {e}")
+        logger.error(f"SQL実行エラー: {e}\nSQL: {sql_query}")
         return None
 
-def calculate_derived_metrics(business_df, population_df, town_name=None, year=None):
+def calculate_derived_metrics(business_df: pd.DataFrame, population_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     """世帯数と事業所数から派生した指標を計算する"""
     try:
+        if business_df.empty or population_df.empty:
+            return None
+        
         # データの結合
         merged_df = pd.merge(
             business_df,
@@ -154,234 +161,165 @@ def calculate_derived_metrics(business_df, population_df, town_name=None, year=N
         if merged_df.empty:
             return None
 
-        # フィルタリング（町名・年度指定時）
-        if town_name:
-            merged_df = merged_df[merged_df['town_name'] == town_name]
-        if year:
-            merged_df = merged_df[merged_df['year'] == year]
+        # 派生指標の計算（ゼロ除算対策）
+        merged_df['office_density'] = merged_df['num_offices'] / merged_df['num_households'].replace(0, 1)
+        merged_df['employee_ratio'] = merged_df['num_employees'] / merged_df['num_population'].replace(0, 1)
+        merged_df['office_size'] = merged_df['num_employees'] / merged_df['num_offices'].replace(0, 1)
+        merged_df['offices_per_1000_pop'] = (merged_df['num_offices'] / merged_df['num_population']) * 1000
 
-        if merged_df.empty:
-            return None
-
-        # 派生指標の計算
-        metrics_df = merged_df.copy()
-
-        # 1. 事業所密度（事業所数 ÷ 世帯数）
-        metrics_df['office_density_per_household'] = metrics_df['num_offices'] / metrics_df['num_households']
-
-        # 2. 従業者比率（従業者数 ÷ 人口数）
-        metrics_df['employee_ratio_per_population'] = metrics_df['num_employees'] / metrics_df['num_population']
-
-        # 3. 事業所規模（従業者数 ÷ 事業所数）
-        metrics_df['office_size'] = metrics_df['num_employees'] / metrics_df['num_offices'].replace(0, 1)  # ゼロ除算回避
-
-        # 4. 世帯あたり事業所数（事業所数 ÷ 世帯数）
-        metrics_df['offices_per_household'] = metrics_df['num_offices'] / metrics_df['num_households']
-
-        # 5. 人口あたり事業所数（事業所数 ÷ 人口数）
-        metrics_df['offices_per_population'] = metrics_df['num_offices'] / metrics_df['num_population']
-
-        return metrics_df
+        logger.info(f"派生指標計算完了: {len(merged_df)}行")
+        return merged_df
 
     except Exception as e:
-        st.error(f"指標の計算に失敗しました: {e}")
+        st.error(f"❌ 指標の計算に失敗しました: {e}")
+        logger.error(f"指標計算エラー: {e}")
         return None
 
-def generate_metric_interpretation(metrics_df, question_type="general"):
+def generate_interpretation(metrics_df: pd.DataFrame) -> str:
     """指標の解釈コメントを生成する"""
     try:
         if metrics_df is None or metrics_df.empty:
             return "解釈できるデータがありません。"
 
-        # 基本統計の計算
-        avg_density = metrics_df['office_density_per_household'].mean()
-        avg_employee_ratio = metrics_df['employee_ratio_per_population'].mean()
-        avg_office_size = metrics_df['office_size'].mean()
+        avg_density = metrics_df['office_density'].mean()
+        avg_ratio = metrics_df['employee_ratio'].mean()
+        avg_size = metrics_df['office_size'].mean()
 
-        # 解釈コメントの生成
-        interpretations = []
+        comments = []
 
-        # 事業所密度の解釈
+        # 事業所密度の評価
         if avg_density > 0.1:
-            interpretations.append(f"事業所密度（{avg_density:.3f}）が高い水準を示しており、各世帯に対して多くの事業所が存在することを表しています。")
+            comments.append(f"🏢 事業所密度が高水準（{avg_density:.3f}）で、商業活動が活発です。")
         elif avg_density > 0.05:
-            interpretations.append(f"事業所密度（{avg_density:.3f}）は平均的な水準です。各世帯に対して適度な事業所数が配置されています。")
+            comments.append(f"📊 事業所密度は標準的（{avg_density:.3f}）です。")
         else:
-            interpretations.append(f"事業所密度（{avg_density:.3f}）は低い水準です。各世帯に対して事業所数が少ない状況です。")
+            comments.append(f"🏘️ 事業所密度が低め（{avg_density:.3f}）で、住宅地中心のエリアです。")
 
-        # 従業者比率の解釈
-        if avg_employee_ratio > 0.3:
-            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）が高く、人口に対して多くの人が事業に従事している活発な経済活動を示しています。")
-        elif avg_employee_ratio > 0.2:
-            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）は標準的な水準です。バランスの取れた雇用状況です。")
+        # 従業者比率の評価
+        if avg_ratio > 0.3:
+            comments.append(f"💼 従業者比率が高く（{avg_ratio:.3f}）、雇用が活発です。")
+        elif avg_ratio > 0.2:
+            comments.append(f"👔 従業者比率は標準的（{avg_ratio:.3f}）です。")
         else:
-            interpretations.append(f"従業者比率（{avg_employee_ratio:.3f}）は低い水準です。経済活動が比較的少ない状況です。")
+            comments.append(f"🏠 従業者比率が低め（{avg_ratio:.3f}）です。")
 
-        # 事業所規模の解釈
-        if avg_office_size > 10:
-            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）が大きく、中規模以上の事業所が多い傾向が見られます。")
-        elif avg_office_size > 5:
-            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）は標準的で、小規模事業所を中心に構成されています。")
+        # 事業所規模の評価
+        if avg_size > 10:
+            comments.append(f"🏭 平均事業所規模が大きく（{avg_size:.1f}人/所）、中規模以上の企業が多いです。")
         else:
-            interpretations.append(f"事業所規模（{avg_office_size:.1f}人/事業所）が小さく、零細事業所が多い状況です。")
+            comments.append(f"🏪 平均事業所規模は小さめ（{avg_size:.1f}人/所）で、小規模事業所中心です。")
 
-        return " ".join(interpretations)
+        return " ".join(comments)
 
     except Exception as e:
-        return f"解釈の生成に失敗しました: {e}"
+        logger.error(f"解釈生成エラー: {e}")
+        return "解釈の生成に失敗しました。"
 
-def get_population_data():
-    """人口データを取得する"""
+def detect_metric_question(question: str) -> bool:
+    """指標計算が必要な質問かを判定"""
+    keywords = ['密度', '比率', '割合', '世帯', '人口', '従業者', 'あたり', '指標']
+    return any(kw in question for kw in keywords)
+
+def get_all_data(table_name: str) -> Optional[pd.DataFrame]:
+    """指定テーブルの全データを取得"""
     try:
-        with duckdb.connect('hachi_office.duckdb', read_only=True) as con:
-            df = con.execute("SELECT * FROM population").fetchdf()
-        return df
+        con = get_db_connection()
+        if con is None:
+            return None
+        return con.execute(f"SELECT * FROM {table_name}").fetchdf()
     except Exception as e:
-        st.error(f"人口データの取得に失敗しました: {e}")
-        return None
-
-def detect_metric_question(question):
-    """質問が世帯数・事業所数関連の指標を求めているかを判定する"""
-    metric_keywords = [
-        '世帯数', '事業所数', '従業者数', '人口', '密度', '比率', '割合',
-        '事業所密度', '従業者比率', '事業所規模', '世帯あたり', '人口あたり',
-        'num_households', 'num_offices', 'num_employees', 'num_population'
-    ]
-
-    question_lower = question.lower()
-    return any(keyword in question_lower for keyword in metric_keywords)
-
-def get_business_data_for_metrics(year=None, town_name=None, industry_name=None):
-    """指標計算用の事業者データを取得する"""
-    try:
-        with duckdb.connect('hachi_office.duckdb', read_only=True) as con:
-            query = "SELECT * FROM business_stats"
-            conditions = []
-
-            if year:
-                conditions.append(f"year = {year}")
-            if town_name:
-                conditions.append(f"town_name = '{town_name}'")
-            if industry_name:
-                conditions.append(f"industry_name = '{industry_name}'")
-
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
-
-            df = con.execute(query).fetchdf()
-        return df
-    except Exception as e:
-        st.error(f"事業者データの取得に失敗しました: {e}")
+        logger.error(f"データ取得エラー ({table_name}): {e}")
         return None
 
 # --- UI部分 ---
-user_question = st.text_input("分析したい内容を質問してください:", "2021年の事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を町名別に比較して")
+st.markdown("---")
 
-if st.button("分析を実行"):
+# サンプル質問ボタン
+st.subheader("💡 質問例")
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("🏗️ 建設業トップ5"):
+        st.session_state.question = "2021年の建設業の事業所数が多い町名トップ5"
+with col2:
+    if st.button("📈 従業員数推移"):
+        st.session_state.question = "年度別の従業員数の推移"
+with col3:
+    if st.button("🏘️ 事業所密度分析"):
+        st.session_state.question = "2022年の町名別の事業所密度を教えて"
+
+# 質問入力
+default_question = st.session_state.get('question', "2021年の事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を町名別に比較して")
+user_question = st.text_input("🔍 分析したい内容を質問してください:", value=default_question, key="input")
+
+if st.button("🚀 分析を実行", type="primary"):
     if user_question:
-        with st.spinner("SQLを生成中..."):
+        with st.spinner("🤖 AIがSQLを生成中..."):
             generated_sql = generate_sql(user_question)
 
         if generated_sql:
-            st.info("生成されたSQLクエリ:")
-            st.code(generated_sql, language="sql")
+            with st.expander("📝 生成されたSQLクエリ", expanded=False):
+                st.code(generated_sql, language="sql")
 
-            with st.spinner("データベースでクエリを実行中..."):
+            with st.spinner("💾 データベースでクエリを実行中..."):
                 result_df = execute_query(generated_sql)
 
-            if result_df is not None:
-                st.success("クエリ結果")
-                st.dataframe(result_df)
+            if result_df is not None and not result_df.empty:
+                st.success(f"✅ クエリ結果 ({len(result_df)}行)")
+                st.dataframe(result_df, use_container_width=True)
 
-                # --- 派生指標の計算と解釈コメントの表示 ---
+                # --- 派生指標の計算 ---
                 if detect_metric_question(user_question):
-                    with st.spinner("派生指標を計算中..."):
-                        # 人口データを取得
-                        population_df = get_population_data()
+                    with st.spinner("📊 派生指標を計算中..."):
+                        population_df = get_all_data('population')
+                        business_df = get_all_data('business_stats')
 
-                        if population_df is not None:
-                            # 事業者データを取得（元のクエリ結果に基づいてフィルタリング）
-                            business_df = get_business_data_for_metrics()
+                        if population_df is not None and business_df is not None:
+                            metrics_df = calculate_derived_metrics(business_df, population_df)
 
-                            if business_df is not None:
-                                # 派生指標を計算
-                                metrics_df = calculate_derived_metrics(business_df, population_df)
+                            if metrics_df is not None and not metrics_df.empty:
+                                st.markdown("---")
+                                st.subheader("📊 派生指標分析")
 
-                                if metrics_df is not None and not metrics_df.empty:
-                                    st.subheader("📊 派生指標分析")
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("平均事業所密度", f"{metrics_df['office_density'].mean():.4f}", 
+                                             help="事業所数 ÷ 世帯数")
+                                with col2:
+                                    st.metric("平均従業者比率", f"{metrics_df['employee_ratio'].mean():.4f}",
+                                             help="従業者数 ÷ 人口数")
+                                with col3:
+                                    st.metric("平均事業所規模", f"{metrics_df['office_size'].mean():.1f}人",
+                                             help="従業者数 ÷ 事業所数")
+                                with col4:
+                                    st.metric("人口1000人あたり事業所数", f"{metrics_df['offices_per_1000_pop'].mean():.1f}",
+                                             help="(事業所数 ÷ 人口) × 1000")
 
-                                    # 指標の概要を表示
-                                    col1, col2, col3 = st.columns(3)
+                                interpretation = generate_interpretation(metrics_df)
+                                st.info(f"💡 **解釈:** {interpretation}")
 
-                                    with col1:
-                                        avg_density = metrics_df['office_density_per_household'].mean()
-                                        st.metric(
-                                            label="平均事業所密度",
-                                            value=f"{avg_density:.4f}",
-                                            help="事業所数 ÷ 世帯数"
-                                        )
+                                if st.checkbox("📋 詳細な指標データを表示"):
+                                    display_cols = ['year', 'town_name', 'num_offices', 'num_employees', 
+                                                  'office_density', 'employee_ratio', 'office_size']
+                                    available_cols = [col for col in display_cols if col in metrics_df.columns]
+                                    st.dataframe(metrics_df[available_cols].round(4), use_container_width=True)
 
-                                    with col2:
-                                        avg_employee_ratio = metrics_df['employee_ratio_per_population'].mean()
-                                        st.metric(
-                                            label="平均従業者比率",
-                                            value=f"{avg_employee_ratio:.4f}",
-                                            help="従業者数 ÷ 人口数"
-                                        )
-
-                                    with col3:
-                                        avg_office_size = metrics_df['office_size'].mean()
-                                        st.metric(
-                                            label="平均事業所規模",
-                                            value=f"{avg_office_size:.1f}人",
-                                            help="従業者数 ÷ 事業所数"
-                                        )
-
-                                    # 解釈コメントを表示
-                                    interpretation = generate_metric_interpretation(metrics_df)
-                                    st.info(f"💡 解釈コメント: {interpretation}")
-
-                                    # 詳細な指標テーブルを表示
-                                    if st.checkbox("詳細な指標データを表示"):
-                                        st.dataframe(metrics_df[[
-                                            'year', 'town_name', 'num_offices', 'num_households',
-                                            'office_density_per_household', 'employee_ratio_per_population',
-                                            'office_size'
-                                        ]].round(4))
-
-                                        # 指標の相関関係を可視化
-                                        if len(metrics_df) > 1:
-                                            st.subheader("相関関係の可視化")
-                                            correlation_cols = ['office_density_per_household', 'employee_ratio_per_population', 'office_size']
-                                            corr_matrix = metrics_df[correlation_cols].corr()
-
-                                            st.dataframe(corr_matrix.style.format("{:.3f}"))
-
-                                else:
-                                    st.warning("派生指標を計算できる十分なデータがありません。")
-                            else:
-                                st.warning("事業者データの取得に失敗しました。")
-                        else:
-                            st.warning("人口データの取得に失敗しました。")
-
-                # --- 簡単な可視化 ---
-                if not result_df.empty and len(result_df.columns) >= 2:
+                # --- グラフ表示 ---
+                if len(result_df.columns) >= 2:
                     try:
-                        # 最初のカテゴリ列と最初の数値列でグラフを作成する試み
-                        category_col = None
-                        value_col = None
-                        for col in result_df.columns:
-                            if result_df[col].dtype == 'object' and category_col is None:
-                                category_col = col
-                            elif pd.api.types.is_numeric_dtype(result_df[col]) and value_col is None:
-                                value_col = col
+                        numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
+                        category_cols = result_df.select_dtypes(include=['object']).columns.tolist()
 
-                        if category_col and value_col:
-                            st.bar_chart(result_df.set_index(category_col)[value_col])
-                        else:
-                            st.write("適切なグラフを作成できるデータ形式ではありません。")
+                        if category_cols and numeric_cols:
+                            st.subheader("📈 データ可視化")
+                            chart_df = result_df.set_index(category_cols[0])[numeric_cols[0]]
+                            st.bar_chart(chart_df)
                     except Exception as e:
-                        st.warning(f"グラフの描画に失敗しました: {e}")
-
+                        logger.warning(f"グラフ描画スキップ: {e}")
+            elif result_df is not None:
+                st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
     else:
-        st.warning("質問を入力してください。")
+        st.warning("⚠️ 質問を入力してください。")
+
+# フッター
+st.markdown("---")
+st.caption("💡 Powered by Google Gemini & DuckDB | 八王子市オープンデータを活用")
