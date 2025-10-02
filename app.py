@@ -21,7 +21,7 @@ with st.expander("📘 使い方とデータについて"):
     **利用可能なデータ**
     - **事業者統計データ (`business_stats`)**:
         - **対応年度**: 2015年～2024年
-        - **事業種別**: 農林漁業, 建設業, 製造業, 情報通信業, 卸売業_小売業, 宿泊業_飲食サービス業, 医療_福祉など18業種
+        - **事業種別**: 農林漁業, 建設業, 製造業, 情報通信業, 卸売業_小売業, 宿泊業_飲食サービス業, 医療_福祉, 金融業_保険業, 不動産業_物品賃貸業, 電気･ガス･熱供給･水道業, 運輸業_郵便業, 学術研究_専門･技術サービス業, 鉱業_採石業_砂利採取業, 生活関連サービス業_娯楽業, 教育_学習支援業, 複合サービス事業, サービス業（他に分類されないもの）, 公務（他に分類されるものを除く）
         - **カラム**: 年度、町名、事業種別、事業所数、従業者数
     - **人口統計データ (`population`)**:
         - **カラム**: 年度、町名、世帯数、人口数、男性数、女性数
@@ -144,15 +144,37 @@ def execute_query(sql_query: str) -> Optional[pd.DataFrame]:
         logger.error(f"SQL実行エラー: {e}\nSQL: {sql_query}")
         return None
 
-def calculate_derived_metrics(business_df: pd.DataFrame, population_df: pd.DataFrame) -> Optional[pd.DataFrame]:
+def calculate_derived_metrics(business_df: pd.DataFrame, population_df: pd.DataFrame, 
+                              year: int = None, industry: str = None, town: str = None) -> Optional[pd.DataFrame]:
     """世帯数と事業所数から派生した指標を計算する"""
     try:
         if business_df.empty or population_df.empty:
             return None
         
+        # フィルタリング（年度・業種・町名）
+        filtered_business = business_df.copy()
+        
+        if year:
+            filtered_business = filtered_business[filtered_business['year'] == year]
+            logger.info(f"年度フィルタ適用: {year}")
+        
+        if industry:
+            filtered_business = filtered_business[filtered_business['industry_name'] == industry]
+            logger.info(f"業種フィルタ適用: {industry}")
+        
+        if town:
+            filtered_business = filtered_business[filtered_business['town_name'] == town]
+            logger.info(f"町名フィルタ適用: {town}")
+        
+        if filtered_business.empty:
+            logger.warning("フィルタ後のデータが空です")
+            return None
+        
+        logger.info(f"フィルタ後のデータ件数: {len(filtered_business)}行")
+        
         # データの結合
         merged_df = pd.merge(
-            business_df,
+            filtered_business,
             population_df[['year', 'town_name', 'num_households', 'num_population']],
             on=['year', 'town_name'],
             how='inner'
@@ -281,6 +303,47 @@ def get_top_bottom_insights(metrics_df: pd.DataFrame, metric_name: str, display_
         logger.error(f"洞察生成エラー: {e}")
         return ""
 
+def extract_query_parameters(sql_query: str, user_question: str) -> dict:
+    """SQLクエリとユーザー質問から年度・業種・町名を抽出"""
+    params = {'year': None, 'industry': None, 'town': None}
+    
+    try:
+        sql_upper = sql_query.upper()
+        
+        # 年度の抽出
+        import re
+        year_matches = re.findall(r'\b(20\d{2})\b', sql_query)
+        if year_matches:
+            params['year'] = int(year_matches[0])
+        
+        # 業種の抽出（WHERE句から）
+        industry_keywords = [
+            '農林漁業', '鉱業_採石業_砂利採取業', '建設業', '製造業', 
+            '電気･ガス･熱供給･水道業', '情報通信業', '運輸業_郵便業', 
+            '卸売業_小売業', '金融業_保険業', '不動産業_物品賃貸業',
+            '学術研究_専門･技術サービス業', '宿泊業_飲食サービス業',
+            '生活関連サービス業_娯楽業', '教育_学習支援業', '医療_福祉',
+            '複合サービス事業', 'サービス業（他に分類されないもの）',
+            '公務（他に分類されるものを除く）'
+        ]
+        
+        for industry in industry_keywords:
+            if industry in sql_query or industry in user_question:
+                params['industry'] = industry
+                break
+        
+        # 町名の抽出（もしWHERE句にあれば）
+        town_match = re.search(r"town_name\s*=\s*'([^']+)'", sql_query)
+        if town_match:
+            params['town'] = town_match.group(1)
+        
+        logger.info(f"抽出されたパラメータ: {params}")
+        return params
+        
+    except Exception as e:
+        logger.error(f"パラメータ抽出エラー: {e}")
+        return params
+
 def detect_metric_question(question: str) -> bool:
     """指標計算が必要な質問かを判定"""
     keywords = ['密度', '比率', '割合', '世帯', '人口', '従業者', 'あたり', '指標']
@@ -311,6 +374,8 @@ if 'metrics_df' not in st.session_state:
     st.session_state.metrics_df = None
 if 'is_metric_question' not in st.session_state:
     st.session_state.is_metric_question = False
+if 'query_params' not in st.session_state:
+    st.session_state.query_params = {}
 
 # サンプル質問ボタン
 st.subheader("💡 質問例")
@@ -345,16 +410,29 @@ if st.button("🚀 分析を実行", type="primary"):
             # 派生指標の計算（指標関連の質問の場合）
             if st.session_state.is_metric_question and result_df is not None and not result_df.empty:
                 with st.spinner("📊 派生指標を計算中..."):
+                    # クエリからパラメータを抽出
+                    query_params = extract_query_parameters(generated_sql, user_question)
+                    
                     population_df = get_all_data('population')
                     business_df = get_all_data('business_stats')
 
                     if population_df is not None and business_df is not None:
-                        metrics_df = calculate_derived_metrics(business_df, population_df)
+                        # 抽出したパラメータでフィルタリング
+                        metrics_df = calculate_derived_metrics(
+                            business_df, 
+                            population_df,
+                            year=query_params['year'],
+                            industry=query_params['industry'],
+                            town=query_params['town']
+                        )
                         st.session_state.metrics_df = metrics_df
+                        st.session_state.query_params = query_params  # パラメータも保存
                     else:
                         st.session_state.metrics_df = None
+                        st.session_state.query_params = {}
             else:
                 st.session_state.metrics_df = None
+                st.session_state.query_params = {}
     else:
         st.warning("⚠️ 質問を入力してください。")
 
@@ -372,13 +450,26 @@ if st.session_state.result_df is not None and not st.session_state.result_df.emp
     # --- 派生指標の表示 ---
     if st.session_state.is_metric_question and st.session_state.metrics_df is not None:
         metrics_df = st.session_state.metrics_df
+        query_params = st.session_state.get('query_params', {})
         
         if not metrics_df.empty:
             st.markdown("---")
             
+            # フィルタ情報を表示
+            filter_info = []
+            if query_params.get('year'):
+                filter_info.append(f"📅 **{query_params['year']}年度**")
+            if query_params.get('industry'):
+                filter_info.append(f"🏢 **{query_params['industry']}**")
+            if query_params.get('town'):
+                filter_info.append(f"📍 **{query_params['town']}**")
+            
+            if filter_info:
+                st.info(f"🔍 **分析対象**: {' / '.join(filter_info)} のデータに基づいて指標を計算しました")
+            
             # 文脈説明を表示
             context_explanation = generate_contextual_explanation(user_question, metrics_df)
-            st.info(f"🔍 **分析の背景**\n\n{context_explanation}")
+            st.info(f"📊 **分析の背景**\n\n{context_explanation}")
             
             st.subheader("📊 経済指標の詳細分析")
 
