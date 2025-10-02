@@ -237,6 +237,14 @@ st.markdown("---")
 # セッション状態の初期化
 if 'user_question' not in st.session_state:
     st.session_state.user_question = "2021年の事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を町名別に比較して"
+if 'result_df' not in st.session_state:
+    st.session_state.result_df = None
+if 'generated_sql' not in st.session_state:
+    st.session_state.generated_sql = None
+if 'metrics_df' not in st.session_state:
+    st.session_state.metrics_df = None
+if 'is_metric_question' not in st.session_state:
+    st.session_state.is_metric_question = False
 
 # サンプル質問ボタン
 st.subheader("💡 質問例")
@@ -260,68 +268,86 @@ if st.button("🚀 分析を実行", type="primary"):
             generated_sql = generate_sql(user_question)
 
         if generated_sql:
-            with st.expander("📝 生成されたSQLクエリ", expanded=False):
-                st.code(generated_sql, language="sql")
-
+            # セッション状態に保存
+            st.session_state.generated_sql = generated_sql
+            
             with st.spinner("💾 データベースでクエリを実行中..."):
                 result_df = execute_query(generated_sql)
+                st.session_state.result_df = result_df
+                st.session_state.is_metric_question = detect_metric_question(user_question)
 
-            if result_df is not None and not result_df.empty:
-                st.success(f"✅ クエリ結果 ({len(result_df)}行)")
-                st.dataframe(result_df, use_container_width=True)
+            # 派生指標の計算（指標関連の質問の場合）
+            if st.session_state.is_metric_question and result_df is not None and not result_df.empty:
+                with st.spinner("📊 派生指標を計算中..."):
+                    population_df = get_all_data('population')
+                    business_df = get_all_data('business_stats')
 
-                # --- 派生指標の計算 ---
-                if detect_metric_question(user_question):
-                    with st.spinner("📊 派生指標を計算中..."):
-                        population_df = get_all_data('population')
-                        business_df = get_all_data('business_stats')
-
-                        if population_df is not None and business_df is not None:
-                            metrics_df = calculate_derived_metrics(business_df, population_df)
-
-                            if metrics_df is not None and not metrics_df.empty:
-                                st.markdown("---")
-                                st.subheader("📊 派生指標分析")
-
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.metric("平均事業所密度", f"{metrics_df['office_density'].mean():.4f}", 
-                                             help="事業所数 ÷ 世帯数")
-                                with col2:
-                                    st.metric("平均従業者比率", f"{metrics_df['employee_ratio'].mean():.4f}",
-                                             help="従業者数 ÷ 人口数")
-                                with col3:
-                                    st.metric("平均事業所規模", f"{metrics_df['office_size'].mean():.1f}人",
-                                             help="従業者数 ÷ 事業所数")
-                                with col4:
-                                    st.metric("人口1000人あたり事業所数", f"{metrics_df['offices_per_1000_pop'].mean():.1f}",
-                                             help="(事業所数 ÷ 人口) × 1000")
-
-                                interpretation = generate_interpretation(metrics_df)
-                                st.info(f"💡 **解釈:** {interpretation}")
-
-                                if st.checkbox("📋 詳細な指標データを表示"):
-                                    display_cols = ['year', 'town_name', 'num_offices', 'num_employees', 
-                                                  'office_density', 'employee_ratio', 'office_size']
-                                    available_cols = [col for col in display_cols if col in metrics_df.columns]
-                                    st.dataframe(metrics_df[available_cols].round(4), use_container_width=True)
-
-                # --- グラフ表示 ---
-                if len(result_df.columns) >= 2:
-                    try:
-                        numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
-                        category_cols = result_df.select_dtypes(include=['object']).columns.tolist()
-
-                        if category_cols and numeric_cols:
-                            st.subheader("📈 データ可視化")
-                            chart_df = result_df.set_index(category_cols[0])[numeric_cols[0]]
-                            st.bar_chart(chart_df)
-                    except Exception as e:
-                        logger.warning(f"グラフ描画スキップ: {e}")
-            elif result_df is not None:
-                st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
+                    if population_df is not None and business_df is not None:
+                        metrics_df = calculate_derived_metrics(business_df, population_df)
+                        st.session_state.metrics_df = metrics_df
+                    else:
+                        st.session_state.metrics_df = None
+            else:
+                st.session_state.metrics_df = None
     else:
         st.warning("⚠️ 質問を入力してください。")
+
+# --- 結果表示（セッション状態から復元） ---
+if st.session_state.generated_sql:
+    with st.expander("📝 生成されたSQLクエリ", expanded=False):
+        st.code(st.session_state.generated_sql, language="sql")
+
+if st.session_state.result_df is not None and not st.session_state.result_df.empty:
+    result_df = st.session_state.result_df
+    
+    st.success(f"✅ クエリ結果 ({len(result_df)}行)")
+    st.dataframe(result_df, use_container_width=True)
+
+    # --- 派生指標の表示 ---
+    if st.session_state.is_metric_question and st.session_state.metrics_df is not None:
+        metrics_df = st.session_state.metrics_df
+        
+        if not metrics_df.empty:
+            st.markdown("---")
+            st.subheader("📊 派生指標分析")
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("平均事業所密度", f"{metrics_df['office_density'].mean():.4f}", 
+                         help="事業所数 ÷ 世帯数")
+            with col2:
+                st.metric("平均従業者比率", f"{metrics_df['employee_ratio'].mean():.4f}",
+                         help="従業者数 ÷ 人口数")
+            with col3:
+                st.metric("平均事業所規模", f"{metrics_df['office_size'].mean():.1f}人",
+                         help="従業者数 ÷ 事業所数")
+            with col4:
+                st.metric("人口1000人あたり事業所数", f"{metrics_df['offices_per_1000_pop'].mean():.1f}",
+                         help="(事業所数 ÷ 人口) × 1000")
+
+            interpretation = generate_interpretation(metrics_df)
+            st.info(f"💡 **解釈:** {interpretation}")
+
+            if st.checkbox("📋 詳細な指標データを表示"):
+                display_cols = ['year', 'town_name', 'num_offices', 'num_employees', 
+                              'office_density', 'employee_ratio', 'office_size']
+                available_cols = [col for col in display_cols if col in metrics_df.columns]
+                st.dataframe(metrics_df[available_cols].round(4), use_container_width=True)
+
+    # --- グラフ表示 ---
+    if len(result_df.columns) >= 2:
+        try:
+            numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
+            category_cols = result_df.select_dtypes(include=['object']).columns.tolist()
+
+            if category_cols and numeric_cols:
+                st.subheader("📈 データ可視化")
+                chart_df = result_df.set_index(category_cols[0])[numeric_cols[0]]
+                st.bar_chart(chart_df)
+        except Exception as e:
+            logger.warning(f"グラフ描画スキップ: {e}")
+elif st.session_state.result_df is not None:
+    st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
 
 # フッター
 st.markdown("---")
