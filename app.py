@@ -215,6 +215,72 @@ def generate_interpretation(metrics_df: pd.DataFrame) -> str:
         logger.error(f"解釈生成エラー: {e}")
         return "解釈の生成に失敗しました。"
 
+def generate_contextual_explanation(user_question: str, metrics_df: pd.DataFrame) -> str:
+    """ユーザーの質問に応じた文脈説明を生成"""
+    try:
+        question_lower = user_question.lower()
+        
+        # 町名が含まれているか確認
+        has_town = 'town_name' in metrics_df.columns and len(metrics_df['town_name'].unique()) > 1
+        
+        # 年度が含まれているか確認
+        has_year = 'year' in metrics_df.columns and len(metrics_df['year'].unique()) > 1
+        
+        explanations = []
+        
+        # 質問内容に応じた説明
+        if '密度' in question_lower or '世帯' in question_lower:
+            explanations.append("ご質問の内容に関連して、**事業所密度**（世帯数に対する事業所数の比率）を分析しました。")
+        
+        if '比率' in question_lower or '割合' in question_lower or '人口' in question_lower:
+            explanations.append("**従業者比率**（人口に対する従業者数の割合）も計算し、地域の経済活動の活発さを評価しました。")
+        
+        if '規模' in question_lower or '従業者' in question_lower:
+            explanations.append("**事業所規模**（1事業所あたりの従業者数）から、事業者の規模感を把握できます。")
+        
+        # 比較対象の説明
+        if has_town and has_year:
+            explanations.append(f"\n📍 {len(metrics_df['town_name'].unique())}の町名、{len(metrics_df['year'].unique())}年度のデータを比較しています。")
+        elif has_town:
+            explanations.append(f"\n📍 {len(metrics_df['town_name'].unique())}の町名を比較しています。")
+        elif has_year:
+            explanations.append(f"\n📅 {len(metrics_df['year'].unique())}年度の推移を分析しています。")
+        
+        if not explanations:
+            return "ご質問に関連する経済指標を自動的に計算しました。以下の指標で地域の特徴を把握できます。"
+        
+        return " ".join(explanations)
+        
+    except Exception as e:
+        logger.error(f"文脈説明生成エラー: {e}")
+        return "質問内容に関連する追加指標を計算しました。"
+
+def get_top_bottom_insights(metrics_df: pd.DataFrame, metric_name: str, display_name: str, n: int = 3) -> str:
+    """指標のトップ・ボトムを抽出して洞察を提供"""
+    try:
+        if metric_name not in metrics_df.columns or 'town_name' not in metrics_df.columns:
+            return ""
+        
+        df_sorted = metrics_df.sort_values(metric_name, ascending=False)
+        
+        # 最新年度のデータを優先
+        if 'year' in df_sorted.columns:
+            latest_year = df_sorted['year'].max()
+            df_sorted = df_sorted[df_sorted['year'] == latest_year]
+        
+        top_towns = df_sorted.head(n)
+        bottom_towns = df_sorted.tail(n)
+        
+        insights = f"\n\n**{display_name}の地域差:**\n"
+        insights += f"- 📈 **上位**: {', '.join([f'{row.town_name}（{row[metric_name]:.3f}）' for _, row in top_towns.iterrows()])}\n"
+        insights += f"- 📉 **下位**: {', '.join([f'{row.town_name}（{row[metric_name]:.3f}）' for _, row in bottom_towns.iterrows()])}"
+        
+        return insights
+        
+    except Exception as e:
+        logger.error(f"洞察生成エラー: {e}")
+        return ""
+
 def detect_metric_question(question: str) -> bool:
     """指標計算が必要な質問かを判定"""
     keywords = ['密度', '比率', '割合', '世帯', '人口', '従業者', 'あたり', '指標']
@@ -309,30 +375,93 @@ if st.session_state.result_df is not None and not st.session_state.result_df.emp
         
         if not metrics_df.empty:
             st.markdown("---")
-            st.subheader("📊 派生指標分析")
+            
+            # 文脈説明を表示
+            context_explanation = generate_contextual_explanation(user_question, metrics_df)
+            st.info(f"🔍 **分析の背景**\n\n{context_explanation}")
+            
+            st.subheader("📊 経済指標の詳細分析")
 
+            # メトリクス表示
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("平均事業所密度", f"{metrics_df['office_density'].mean():.4f}", 
-                         help="事業所数 ÷ 世帯数")
+                avg_density = metrics_df['office_density'].mean()
+                st.metric(
+                    "平均事業所密度", 
+                    f"{avg_density:.4f}", 
+                    help="事業所数 ÷ 世帯数\n\n値が高いほど、世帯数に対して事業所が多い（商業地域的）"
+                )
             with col2:
-                st.metric("平均従業者比率", f"{metrics_df['employee_ratio'].mean():.4f}",
-                         help="従業者数 ÷ 人口数")
+                avg_ratio = metrics_df['employee_ratio'].mean()
+                st.metric(
+                    "平均従業者比率", 
+                    f"{avg_ratio:.4f}",
+                    help="従業者数 ÷ 人口数\n\n値が高いほど、人口に対して働く人が多い（雇用が活発）"
+                )
             with col3:
-                st.metric("平均事業所規模", f"{metrics_df['office_size'].mean():.1f}人",
-                         help="従業者数 ÷ 事業所数")
+                avg_size = metrics_df['office_size'].mean()
+                st.metric(
+                    "平均事業所規模", 
+                    f"{avg_size:.1f}人",
+                    help="従業者数 ÷ 事業所数\n\n値が大きいほど、1事業所あたりの従業員が多い（大規模事業所）"
+                )
             with col4:
-                st.metric("人口1000人あたり事業所数", f"{metrics_df['offices_per_1000_pop'].mean():.1f}",
-                         help="(事業所数 ÷ 人口) × 1000")
+                avg_per_1000 = metrics_df['offices_per_1000_pop'].mean()
+                st.metric(
+                    "人口1000人あたり事業所数", 
+                    f"{avg_per_1000:.1f}",
+                    help="(事業所数 ÷ 人口) × 1000\n\n国際比較などで使われる標準指標"
+                )
 
+            # 解釈コメント
             interpretation = generate_interpretation(metrics_df)
-            st.info(f"💡 **解釈:** {interpretation}")
+            
+            # 地域差の洞察（町名別データがある場合）
+            insights = ""
+            if 'town_name' in metrics_df.columns and len(metrics_df['town_name'].unique()) > 1:
+                insights += get_top_bottom_insights(metrics_df, 'office_density', '事業所密度', n=3)
+            
+            full_interpretation = f"💡 **データから読み取れること**\n\n{interpretation}{insights}"
+            st.success(full_interpretation)
 
-            if st.checkbox("📋 詳細な指標データを表示"):
-                display_cols = ['year', 'town_name', 'num_offices', 'num_employees', 
-                              'office_density', 'employee_ratio', 'office_size']
+            # 詳細データ表示
+            with st.expander("📋 詳細な指標データを表示", expanded=False):
+                display_cols = ['year', 'town_name', 'num_offices', 'num_employees', 'num_households', 'num_population',
+                              'office_density', 'employee_ratio', 'office_size', 'offices_per_1000_pop']
                 available_cols = [col for col in display_cols if col in metrics_df.columns]
-                st.dataframe(metrics_df[available_cols].round(4), use_container_width=True)
+                
+                # カラム名を日本語化
+                col_rename = {
+                    'year': '年度',
+                    'town_name': '町名',
+                    'num_offices': '事業所数',
+                    'num_employees': '従業者数',
+                    'num_households': '世帯数',
+                    'num_population': '人口数',
+                    'office_density': '事業所密度',
+                    'employee_ratio': '従業者比率',
+                    'office_size': '事業所規模',
+                    'offices_per_1000_pop': '人口千人あたり事業所数'
+                }
+                
+                display_df = metrics_df[available_cols].copy()
+                display_df = display_df.rename(columns=col_rename)
+                
+                st.dataframe(
+                    display_df.round(4), 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # CSVダウンロード
+                csv = display_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    "📥 CSVでダウンロード",
+                    csv,
+                    "hachioji_metrics.csv",
+                    "text/csv",
+                    key='download-csv'
+                )
 
     # --- グラフ表示 ---
     if len(result_df.columns) >= 2:
