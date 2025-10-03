@@ -2,6 +2,8 @@ import streamlit as st
 import duckdb
 import pandas as pd
 import google.generativeai as genai
+import geopandas as gpd
+import pydeck as pdk
 from typing import Optional, Tuple
 import logging
 
@@ -99,6 +101,38 @@ def get_db_connection():
         logger.error(f"データベース接続エラー: {e}")
         return None
 
+@st.cache_data
+def load_geojson_data() -> Optional[gpd.GeoDataFrame]:
+    """GeoJSONデータを読み込み、キャッシュする"""
+    try:
+        gdf = gpd.read_file('geojson/hachiouji_aza.geojson')
+        # 必要なカラムに絞り、町名カラムの名前を統一
+        gdf = gdf[['S_NAME', 'geometry']].rename(columns={'S_NAME': 'town_name'})
+        
+        # CRSを確認し、WGS84でない場合は変換
+        if gdf.crs is None:
+            gdf = gdf.set_crs(epsg=4326)
+        elif gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+        
+        # PyDeck用にgeometry列を座標配列に変換
+        def geometry_to_coordinates(geom):
+            """GeometryオブジェクトをPyDeck用の座標配列に変換"""
+            if geom.geom_type == 'Polygon':
+                return [list(geom.exterior.coords)]
+            elif geom.geom_type == 'MultiPolygon':
+                return [list(poly.exterior.coords) for poly in geom.geoms]
+            return []
+        
+        gdf['coordinates'] = gdf['geometry'].apply(geometry_to_coordinates)
+        
+        logger.info(f"GeoJSON読み込み成功: {len(gdf)}件のデータ")
+        return gdf
+        
+    except Exception as e:
+        logger.error(f"GeoJSONの読み込みに失敗しました: {e}")
+        return None
+    
 # --- API設定 ---
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -566,6 +600,87 @@ if st.session_state.result_df is not None and not st.session_state.result_df.emp
                 st.bar_chart(chart_df)
         except Exception as e:
             logger.warning(f"グラフ描画スキップ: {e}")
+
+    # --- 地図表示 ---
+    if result_df is not None and not result_df.empty:
+
+        # 町名と数値データがある場合のみ地図を表示
+        numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
+        if 'town_name' in result_df.columns and len(numeric_cols) > 0:
+            st.subheader("🗺️ 地図で結果を確認")
+            
+            # 使用する数値カラムを選択
+            metric_to_map = st.selectbox(
+                "地図に表示する指標を選択してください:",
+                options=numeric_cols,
+                index=0
+            )
+
+            with st.spinner("🗺️ 地図データを生成中..."):
+                gdf = load_geojson_data()
+                if gdf is not None:
+                    # GeoDataFrameと結果をマージ
+                    map_df = gdf.merge(result_df, on='town_name', how='inner')
+
+                    if not map_df.empty:
+                        # 値の正規化（0-1の範囲に）
+                        max_val = map_df[metric_to_map].max()
+                        min_val = map_df[metric_to_map].min()
+                        
+                        if max_val > min_val:
+                            map_df['normalized'] = (map_df[metric_to_map] - min_val) / (max_val - min_val)
+                        else:
+                            map_df['normalized'] = 0.5
+                        
+                        # 色を計算（赤→黄色→緑のグラデーション）
+                        def get_color(normalized_value):
+                            """正規化された値(0-1)からRGBA色を生成"""
+                            r = int(255 * (1 - normalized_value))
+                            g = int(255 * normalized_value)
+                            b = 0
+                            return [r, g, b, 180]
+                        
+                        map_df['fill_color'] = map_df['normalized'].apply(get_color)
+                        
+                       # Pydeckで地図を描画
+                        st.pydeck_chart(pdk.Deck(
+                            map_style=None,
+                            initial_view_state=pdk.ViewState(
+                                latitude=35.655,
+                                longitude=139.33,
+                                zoom=11,
+                                pitch=0,
+                            ),
+                            layers=[
+                                pdk.Layer(
+                                    'PolygonLayer',
+                                    data=map_df,
+                                    get_polygon='coordinates',
+                                    filled=True,
+                                    stroked=True,
+                                    get_fill_color='fill_color',
+                                    get_line_color=[80, 80, 80],
+                                    line_width_min_pixels=1,
+                                    pickable=True,
+                                    auto_highlight=True,
+                                )
+                            ],
+                            tooltip={
+                                "html": f"<b>町名:</b> {{town_name}}<br/><b>{metric_to_map}:</b> {{{metric_to_map}}}",
+                                "style": {
+                                    "backgroundColor": "steelblue",
+                                    "color": "white"
+                                }
+                            }
+                        ))
+                        
+                        # 凡例を表示
+                        st.caption(f"🎨 色の凡例: 赤（低い値: {min_val:.2f}）→ 黄色（中間）→ 緑（高い値: {max_val:.2f}）")
+                    else:
+                        st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
+                else:
+                    st.error("❌ 地図データの読み込みに失敗しました。")
+
 elif st.session_state.result_df is not None:
     st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
 
