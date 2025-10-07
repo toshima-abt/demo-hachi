@@ -141,7 +141,12 @@ def render_visualizations(result_df):
             if gdf is not None:
                 map_df = gdf.merge(result_df, on='town_name', how='inner')
                 if not map_df.empty:
-                    m = folium.Map(location=[35.655, 139.33], zoom_start=11)
+                    m = folium.Map(
+                        location=[35.655, 139.33], 
+                        zoom_start=11,
+                        tiles='https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
+                        attr='国土地理院'
+                    )
                     choropleth = folium.Choropleth(
                         geo_data=map_df,
                         name='choropleth',
