@@ -156,7 +156,8 @@ def render_visualizations(result_df):
                         fill_color='RdYlGn',
                         fill_opacity=0.7,
                         line_opacity=0.3,
-                        line_color='gray',
+                        line_color='blue',
+                        line_weight=2.0,
                         legend_name=f'{metric_to_map} の値',
                         bins=8,
                     ).add_to(m)
