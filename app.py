@@ -399,7 +399,7 @@ st.markdown("---")
 
 # セッション状態の初期化
 if 'user_question' not in st.session_state:
-    st.session_state.user_question = "2021年の事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を町名別に比較して"
+    st.session_state.user_question = "町名毎に2021年の全事業所密度（事業所数÷世帯数）と従業者比率（従業者数÷人口数）を比較して"
 if 'result_df' not in st.session_state:
     st.session_state.result_df = None
 if 'generated_sql' not in st.session_state:
@@ -416,13 +416,13 @@ st.subheader("💡 質問例")
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("🏗️ 建設業トップ5"):
-        st.session_state.user_question = "2021年の建設業の事業所数が多い町名トップ5"
+        st.session_state.user_question = "2015年の建設業の事業所数が多い町名トップ5"
 with col2:
     if st.button("📈 従業員数推移"):
-        st.session_state.user_question = "年度別の従業員数の推移"
+        st.session_state.user_question = "旭町の年度別の全従業員数の推移"
 with col3:
     if st.button("🏘️ 事業所密度分析"):
-        st.session_state.user_question = "2022年の町名別の事業所密度を教えて"
+        st.session_state.user_question = "2024年の町名毎の事業所密度を教えて"
 
 # 質問入力（セッション状態と直接バインド）
 user_question = st.text_input("🔍 分析したい内容を質問してください:", key="user_question")
