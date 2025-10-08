@@ -166,7 +166,7 @@ def render_visualizations(result_df):
                         aliases=['町名:', f'{metric_to_map}:'],
                         style=('background-color: grey; color: white; font-family: courier new; font-size: 12px; padding: 10px;')
                     ).add_to(choropleth.geojson)
-                    st_folium(m, use_container_width=True)
+                    st_folium(m, use_container_width=True, returned_objects=[])
                 else:
                     st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
             else:
