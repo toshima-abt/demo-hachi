@@ -32,7 +32,7 @@ def render_sample_questions():
     st.subheader("💡 質問例")
     col1, col2, col3 = st.columns(3)
     if col1.button("🏗️ 建設業トップ10"):
-        st.session_state.user_question = "2015年の建設業の事業所数が多い町名とその事業所数トップ10"
+        st.session_state.user_question = "2015年の町名毎の建設業の事業所数トップ10"
         st.rerun()
     if col2.button("📈 従業員数推移"):
         st.session_state.user_question = "旭町の年度別の全従業員数の推移"
@@ -179,7 +179,7 @@ def render_visualizations(result_df):
                         tooltip=folium.GeoJsonTooltip(
                             fields=['town_name', metric_to_map],
                             aliases=['町名:', f'{metric_to_map}:'],
-                            style=('background-color: grey; color: white; '
+                            style=('background-color: white; color: black; '
                                 'font-family: courier new; font-size: 12px; padding: 10px;')
                         )
                     ).add_to(m)
