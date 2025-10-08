@@ -142,6 +142,7 @@ def render_visualizations(result_df):
                 map_df = gdf.merge(result_df, on='town_name', how='inner')
                 if not map_df.empty:
                     import branca.colormap as cm
+                    from folium import Element
                     
                     m = folium.Map(
                         location=[35.655, 139.33], 
@@ -185,6 +186,16 @@ def render_visualizations(result_df):
                     ).add_to(m)
                     
                     colormap.add_to(m)
+
+                    # CSSでクリック時の四角形（outline）を無効化
+                    css_style = """
+                    <style>
+                    path.leaflet-interactive:focus {
+                        outline: none !important;
+                    }
+                    </style>
+                    """
+                    m.get_root().html.add_child(Element(css_style))                    
                     
                     st_folium(m, use_container_width=True, returned_objects=[], key="hachioji_map")
                 else:
