@@ -31,8 +31,8 @@ def render_sample_questions():
     """ サンプル質問ボタンを表示 """
     st.subheader("💡 質問例")
     col1, col2, col3 = st.columns(3)
-    if col1.button("🏗️ 建設業トップ5"):
-        st.session_state.user_question = "2015年の建設業の事業所数が多い町名トップ5"
+    if col1.button("🏗️ 建設業トップ10"):
+        st.session_state.user_question = "2015年の建設業の事業所数が多い町名とその事業所数トップ10"
         st.rerun()
     if col2.button("📈 従業員数推移"):
         st.session_state.user_question = "旭町の年度別の全従業員数の推移"
@@ -141,32 +141,52 @@ def render_visualizations(result_df):
             if gdf is not None:
                 map_df = gdf.merge(result_df, on='town_name', how='inner')
                 if not map_df.empty:
+                    import branca.colormap as cm
+                    
                     m = folium.Map(
                         location=[35.655, 139.33], 
                         zoom_start=11,
                         tiles='https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
                         attr='国土地理院'
                     )
-                    choropleth = folium.Choropleth(
-                        geo_data=map_df,
-                        name='choropleth',
-                        data=map_df,
-                        columns=['town_name', metric_to_map],
-                        key_on='feature.properties.town_name',
-                        fill_color='RdYlGn',
-                        fill_opacity=0.7,
-                        line_opacity=0.3,
-                        line_color='blue',
-                        line_weight=2.0,
-                        legend_name=f'{metric_to_map} の値',
-                        bins=8,
+                    
+                    # カラーマップの作成
+                    values = map_df[metric_to_map].values
+                    vmin, vmax = values.min(), values.max()
+                    colormap = cm.LinearColormap(
+                        colors=['#d73027', '#fee08b', '#1a9850'],
+                        index=[vmin, (vmin + vmax) / 2, vmax],
+                        vmin=vmin,
+                        vmax=vmax,
+                        caption=f'{metric_to_map} の値'
+                    )
+                    
+                    # GeoJsonレイヤー（四角形なし、ポリゴン強調）
+                    folium.GeoJson(
+                        map_df,
+                        style_function=lambda feature: {
+                            'fillColor': colormap(feature['properties'][metric_to_map]),
+                            'color': 'gray',
+                            'weight': 1,
+                            'fillOpacity': 0.7,
+                        },
+                        highlight_function=lambda feature: {
+                            'fillColor': colormap(feature['properties'][metric_to_map]),
+                            'color': 'blue',
+                            'weight': 3,
+                            'fillOpacity': 0.95,
+                        },
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=['town_name', metric_to_map],
+                            aliases=['町名:', f'{metric_to_map}:'],
+                            style=('background-color: grey; color: white; '
+                                'font-family: courier new; font-size: 12px; padding: 10px;')
+                        )
                     ).add_to(m)
-                    folium.GeoJsonTooltip(
-                        fields=['town_name', metric_to_map],
-                        aliases=['町名:', f'{metric_to_map}:'],
-                        style=('background-color: grey; color: white; font-family: courier new; font-size: 12px; padding: 10px;')
-                    ).add_to(choropleth.geojson)
-                    st_folium(m, use_container_width=True, returned_objects=[])
+                    
+                    colormap.add_to(m)
+                    
+                    st_folium(m, use_container_width=True, returned_objects=[], key="hachioji_map")
                 else:
                     st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
             else:
