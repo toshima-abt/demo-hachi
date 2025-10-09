@@ -78,7 +78,7 @@ def get_db_connection():
 def load_geojson_data() -> Optional[gpd.GeoDataFrame]:
     """GeoJSONデータを読み込み、キャッシュする"""
     try:
-        gdf = gpd.read_file('geojson/hachiouji_aza.geojson')
+        gdf = gpd.read_file('geojson/hachiouji_aza_simplified.geojson')
         gdf = gdf[['S_NAME', 'geometry']].rename(columns={'S_NAME': 'town_name'})
         if gdf.crs is None:
             gdf = gdf.set_crs(epsg=4326)
