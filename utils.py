@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 TABLE_SCHEMA = """
 CREATE TABLE business_stats("year" INTEGER, town_name VARCHAR, industry_name VARCHAR, num_offices INTEGER, num_employees INTEGER);
 CREATE TABLE population("year" BIGINT, town_name VARCHAR, num_households BIGINT, num_population BIGINT, num_male BIGINT, num_female BIGINT);
+CREATE TABLE crimes("year" BIGINT, town_name VARCHAR, major_crime VARCHAR, minor_crime VARCHAR, crime_count BIGINT);
 """
 
 COLUMN_DEFINITIONS = """
@@ -25,6 +26,9 @@ num_households: 世帯数
 num_population: 人口数
 num_male: 男性数
 num_female: 女性数
+major_crime: 犯罪大分類
+minor_crime: 犯罪小分類
+crime_count: 犯罪件数
 """
 
 INDUSTRY_NAMES = """
@@ -33,6 +37,39 @@ INDUSTRY_NAMES = """
 学術研究_専門･技術サービス業, 宿泊業_飲食サービス業, 生活関連サービス業_娯楽業, 
 教育_学習支援業, 医療_福祉, 複合サービス事業, サービス業（他に分類されないもの）, 
 公務（他に分類されるものを除く）
+"""
+
+CRIMES_TYPES = """
+凶悪犯:強盗,
+凶悪犯:その他,
+粗暴犯:傷害,
+粗暴犯:恐喝,
+粗暴犯:暴行,
+粗暴犯:脅迫,
+侵入窃盗:事務所荒し,
+侵入窃盗:出店荒し,
+侵入窃盗:学校荒し,
+侵入窃盗:居空き,
+侵入窃盗:忍込み,
+侵入窃盗:空き巣,
+侵入窃盗:金庫破り,
+侵入窃盗:その他,
+非侵入窃盗:すり,
+非侵入窃盗:ひったくり,
+非侵入窃盗:オートバイ盗,
+非侵入窃盗:万引き,
+非侵入窃盗:工事場ねらい,
+非侵入窃盗:置引き,
+非侵入窃盗:自動車盗,
+非侵入窃盗:自販機ねらい,
+非侵入窃盗:自転車盗,
+非侵入窃盗:車上ねらい,
+非侵入窃盗:その他,
+その他:占有離脱物横領,
+その他:詐欺,
+その他:賭博,
+その他:その他刑法犯,
+その他:その他知能犯,
 """
 
 PROMPT_TEMPLATE = f"""
@@ -47,6 +84,9 @@ SQLクエリのみを生成し、他の説明文は含めないでください�
 
 ### 利用可能な事業種別
 {INDUSTRY_NAMES}
+
+### 利用可能な犯罪分類(大分類:小分類)
+{CRIMES_TYPES}
 
 ### 対応年度
 2015年～2024年
