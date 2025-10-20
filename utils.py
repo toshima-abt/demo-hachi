@@ -6,6 +6,8 @@ import geopandas as gpd
 from typing import Optional
 import logging
 import re
+import json
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +170,7 @@ def execute_query(sql_query: str) -> Optional[pd.DataFrame]:
 def generate_sql(question: str) -> Optional[str]:
     """ユーザーの質問からSQLを生成する"""
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        model = genai.GenerativeModel('gemini-flash-latest')
         prompt = PROMPT_TEMPLATE.format(user_question=question)
         response = model.generate_content(prompt)
         sql_query = response.text.strip().replace("```sql", "").replace("```", "").strip()
@@ -323,3 +325,34 @@ def get_top_bottom_insights(metrics_df: pd.DataFrame, metric_name: str, display_
     except Exception as e:
         logger.error(f"洞察生成エラー: {e}")
         return ""
+
+
+def generate_ai_summary(df: pd.DataFrame, user_question: str) -> str:
+    """分析結果をもとにGeminiが自然言語で傾向を説明する"""
+    if df is None or df.empty:
+        return "データが見つかりませんでした。"
+
+    try:
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        model = genai.GenerativeModel('gemini-flash-latest')
+
+        # DataFrameをコンパクトに変換（最大30行）
+        sample_data = df.head(30).to_dict(orient="records")
+        data_str = json.dumps(sample_data, ensure_ascii=False)
+
+        prompt = f"""
+次の質問とデータに基づいて、八王子市に関する分析結果を日本語で説明してください。
+質問: {user_question}
+データサンプル: {data_str}
+
+出力条件:
+- 一般利用者にも分かりやすく、2〜4文で要約。
+- 主な傾向・特徴・注目すべき点を述べる。
+- 数値や町名が明確な場合はそれを挙げる。
+"""
+
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"AI要約生成エラー: {e}")
+        return "AIによる分析コメントの生成に失敗しました。"

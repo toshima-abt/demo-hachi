@@ -93,7 +93,7 @@ def main():
                 st.session_state.query_params = {}
 
     # --- 結果の表示 ---
-    render_results(st.session_state.result_df, st.session_state.generated_sql)
+    render_results(st.session_state.result_df, st.session_state.generated_sql, st.session_state.user_question)
     
     if st.session_state.is_metric_question:
         render_metrics_and_insights(

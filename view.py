@@ -5,6 +5,7 @@ import pandas as pd
 from utils import (
     generate_contextual_explanation, 
     generate_interpretation, 
+    generate_ai_summary,
     get_top_bottom_insights,
     load_geojson_data
 )
@@ -28,25 +29,43 @@ def render_header():
         """)
 
 def render_sample_questions():
-    """ サンプル質問ボタンを表示 """
-    st.subheader("💡 質問例")
-    col1, col2, col3 = st.columns(3)
-    if col1.button("🏗️ 建設業トップ10"):
-        st.session_state.user_question = "2015年の町名毎の建設業の事業所数トップ10"
-        st.rerun()
-    if col2.button("📈 従業員数推移"):
-        st.session_state.user_question = "旭町の年度別の全従業員数の推移"
-        st.rerun()
-    if col3.button("🏘️ 事業所密度分析"):
-        st.session_state.user_question = "2024年の町名毎の事業所密度を教えて"
-        st.rerun()
+    """ サンプル質問の選択UIを表示（犯罪データ対応版） """
+    st.subheader("💡 サンプル質問を選択")
+
+    sample_questions = {
+        "🏗️ 建設業トップ10": "2015年の町名毎の建設業の事業所数トップ10",
+        "📈 従業員数推移": "旭町の年度別の全従業員数の推移",
+        "🏘️ 事業所密度分析": "2024年の町名毎の事業所密度を教えて",
+
+        # --- 新規追加: 犯罪関連を含む統計的に興味深い質問 ---
+        "🔍 世帯数あたりの犯罪発生率": "2020年の町名ごとの世帯数あたり犯罪発生率を教えて",
+        "🍽️ 飲食業と犯罪件数の関係": "飲食業の事業所数が多い町ほど犯罪件数は多いですか？",
+        "📊 犯罪件数の推移": "2010年から2020年の間で犯罪件数が最も増えた町を教えて",
+        "🏢 犯罪と産業構造": "犯罪件数が多い地域ではどの産業の事業所が多いですか？",
+        "🏙️ 犯罪と世帯数の関係": "世帯数が多い地域ほど犯罪件数が多い傾向はありますか？",
+        "🔎 治安改善エリア": "ここ5年間で犯罪件数が減少している地域とその比率を教えて",
+    }
+
+    # 選択メニュー
+    selected_question = st.selectbox(
+        "質問例から選んでみましょう：",
+        options=["（選択しない）"] + list(sample_questions.keys())
+    )
+
+    # 実行ボタン
+    if selected_question != "（選択しない）":
+        if st.button("🧠 この質問を登録"):
+            st.session_state.user_question = sample_questions[selected_question]
+            st.rerun()
+
+
 
 def render_main_form():
     """ メインの質問入力フォームを表示 """
     st.text_input("🔍 分析したい内容を質問してください:", key="user_question")
     st.button("🚀 分析を実行", type="primary", key="run_analysis_button")
 
-def render_results(result_df, generated_sql):
+def render_results(result_df, generated_sql, user_question):
     """ SQLとクエリ結果のデータフレームを表示 """
     if generated_sql:
         with st.expander("📝 生成されたSQLクエリ", expanded=False):
@@ -57,6 +76,12 @@ def render_results(result_df, generated_sql):
         st.dataframe(result_df, use_container_width=True)
     elif result_df is not None:
         st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
+
+    if result_df is not None and not result_df.empty:
+        with st.expander("🤖 AIによる分析コメント", expanded=True):
+            ai_comment = generate_ai_summary(result_df, user_question)
+            st.markdown(ai_comment)
+
 
 def render_metrics_and_insights(metrics_df, user_question, query_params):
     """ 派生指標とそれに関する洞察を表示 """
@@ -114,7 +139,7 @@ def render_visualizations(result_df):
     """ グラフと地図を表示 """
     if result_df is None or result_df.empty:
         return
-
+    
     st.markdown("---")
     st.subheader("📈 データ可視化")
 
