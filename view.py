@@ -10,8 +10,14 @@ from utils import (
     load_geojson_data,
     get_yearly_business_summary,
     get_yearly_population_summary,
-    get_yearly_crime_summary
+    get_yearly_crime_summary,
+    get_available_years,
+    get_town_business_data,
+    get_town_population_data,
+    get_town_crime_data
 )
+import branca.colormap as cm
+from folium import Element
 
 def render_header():
     """ タイトルと説明文を表示 """
@@ -138,6 +144,71 @@ def render_metrics_and_insights(metrics_df, user_question, query_params):
         csv = display_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 CSVでダウンロード", csv, "hachioji_metrics.csv", "text/csv")
 
+def render_folium_map(df: pd.DataFrame, metric_to_map: str):
+    """ Folium地図を生成・表示する共通関数 """
+    with st.spinner("🗺️ 地図データを生成中..."):
+        gdf = load_geojson_data()
+        if gdf is None:
+            st.error("❌ 地図データの読み込みに失敗しました。")
+            return
+
+        map_df = gdf.merge(df, on='town_name', how='inner')
+        if map_df.empty:
+            st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
+            return
+
+        m = folium.Map(
+            location=[35.655, 139.33], 
+            zoom_start=11,
+            tiles='https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
+            attr='国土地理院'
+        )
+        
+        values = map_df[metric_to_map].values
+        vmin, vmax = values.min(), values.max()
+        colormap = cm.LinearColormap(
+            colors=['#d73027', '#fee08b', '#1a9850'],
+            index=[vmin, (vmin + vmax) / 2, vmax],
+            vmin=vmin,
+            vmax=vmax,
+            caption=f'{metric_to_map} の値'
+        )
+        
+        folium.GeoJson(
+            map_df,
+            style_function=lambda feature: {
+                'fillColor': colormap(feature['properties'][metric_to_map]),
+                'color': 'gray',
+                'weight': 1,
+                'fillOpacity': 0.7,
+            },
+            highlight_function=lambda feature: {
+                'fillColor': colormap(feature['properties'][metric_to_map]),
+                'color': 'blue',
+                'weight': 3,
+                'fillOpacity': 0.95,
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=['town_name', metric_to_map],
+                aliases=['町名:', f'{metric_to_map}:'],
+                style=('background-color: white; color: black; '
+                    'font-family: courier new; font-size: 12px; padding: 10px;')
+            )
+        ).add_to(m)
+        
+        colormap.add_to(m)
+
+        css_style = """
+        <style>
+        path.leaflet-interactive:focus {
+            outline: none !important;
+        }
+        </style>
+        """
+        m.get_root().html.add_child(Element(css_style))                    
+        
+        st_folium(m, use_container_width=True, returned_objects=[], key="hachioji_map_stats")
+
 def render_visualizations(result_df):
     """ グラフと地図を表示 """
     if result_df is None or result_df.empty:
@@ -146,7 +217,6 @@ def render_visualizations(result_df):
     st.markdown("---")
     st.subheader("📈 データ可視化")
 
-    # グラフ表示
     try:
         numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
         category_cols = result_df.select_dtypes(include=['object']).columns.tolist()
@@ -158,85 +228,17 @@ def render_visualizations(result_df):
     except Exception as e:
         st.warning(f"グラフ描画スキップ: {e}")
 
-    # 地図表示
     numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
     if 'town_name' in result_df.columns and len(numeric_cols) > 0:
         st.subheader("🗺️ 地図で結果を確認")
         metric_to_map = st.selectbox("地図に表示する指標を選択してください:", options=numeric_cols, index=0)
-
-        with st.spinner("🗺️ 地図データを生成中..."):
-            gdf = load_geojson_data()
-            if gdf is not None:
-                map_df = gdf.merge(result_df, on='town_name', how='inner')
-                if not map_df.empty:
-                    import branca.colormap as cm
-                    from folium import Element
-                    
-                    m = folium.Map(
-                        location=[35.655, 139.33], 
-                        zoom_start=11,
-                        tiles='https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
-                        attr='国土地理院'
-                    )
-                    
-                    # カラーマップの作成
-                    values = map_df[metric_to_map].values
-                    vmin, vmax = values.min(), values.max()
-                    colormap = cm.LinearColormap(
-                        colors=['#d73027', '#fee08b', '#1a9850'],
-                        index=[vmin, (vmin + vmax) / 2, vmax],
-                        vmin=vmin,
-                        vmax=vmax,
-                        caption=f'{metric_to_map} の値'
-                    )
-                    
-                    # GeoJsonレイヤー（四角形なし、ポリゴン強調）
-                    folium.GeoJson(
-                        map_df,
-                        style_function=lambda feature: {
-                            'fillColor': colormap(feature['properties'][metric_to_map]),
-                            'color': 'gray',
-                            'weight': 1,
-                            'fillOpacity': 0.7,
-                        },
-                        highlight_function=lambda feature: {
-                            'fillColor': colormap(feature['properties'][metric_to_map]),
-                            'color': 'blue',
-                            'weight': 3,
-                            'fillOpacity': 0.95,
-                        },
-                        tooltip=folium.GeoJsonTooltip(
-                            fields=['town_name', metric_to_map],
-                            aliases=['町名:', f'{metric_to_map}:'],
-                            style=('background-color: white; color: black; '
-                                'font-family: courier new; font-size: 12px; padding: 10px;')
-                        )
-                    ).add_to(m)
-                    
-                    colormap.add_to(m)
-
-                    # CSSでクリック時の四角形（outline）を無効化
-                    css_style = """
-                    <style>
-                    path.leaflet-interactive:focus {
-                        outline: none !important;
-                    }
-                    </style>
-                    """
-                    m.get_root().html.add_child(Element(css_style))                    
-                    
-                    st_folium(m, use_container_width=True, returned_objects=[], key="hachioji_map")
-                else:
-                    st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
-            else:
-                st.error("❌ 地図データの読み込みに失敗しました。")
+        render_folium_map(result_df, metric_to_map)
 
 def render_basic_statistics_view():
     """ 基本統計データを表示する """
     st.subheader("八王子市 基本統計データ（年度別）")
     st.markdown("八王子市全体の年度別主要統計データの推移です。")
 
-    # 事業所数・従業員数の推移
     st.markdown("---")
     st.subheader("🏢 事業所数・従業員数の推移")
     business_df = get_yearly_business_summary()
@@ -251,7 +253,6 @@ def render_basic_statistics_view():
     else:
         st.warning("事業所データがありませんでした。")
 
-    # 世帯数・人口の推移
     st.markdown("---")
     st.subheader("👨‍👩‍👧‍👦 世帯数・人口の推移")
     population_df = get_yearly_population_summary()
@@ -266,7 +267,6 @@ def render_basic_statistics_view():
     else:
         st.warning("人口データがありませんでした。")
 
-    # 犯罪件数の推移
     st.markdown("---")
     st.subheader("🚓 犯罪件数の推移")
     crime_df = get_yearly_crime_summary()
@@ -279,3 +279,42 @@ def render_basic_statistics_view():
             }), use_container_width=True, hide_index=True)
     else:
         st.warning("犯罪データがありませんでした。")
+
+    # --- 地図表示機能 ---
+    st.markdown("---")
+    st.subheader("🗺️ 町名別データの地図表示")
+
+    available_years = get_available_years()
+    if not available_years:
+        st.warning("地図表示に利用できるデータがありませんでした。")
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_year = st.selectbox("表示する年度を選択", options=available_years, key="map_year")
+    with col2:
+        data_type = st.selectbox(
+            "表示するデータの種類を選択", 
+            options=["事業所データ", "人口データ", "犯罪データ"], 
+            key="map_data_type"
+        )
+
+    df = None
+    if data_type == "事業所データ":
+        df = get_town_business_data(selected_year)
+    elif data_type == "人口データ":
+        df = get_town_population_data(selected_year)
+    elif data_type == "犯罪データ":
+        df = get_town_crime_data(selected_year)
+
+    if df is not None and not df.empty:
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        if numeric_cols:
+            metric_to_map = st.selectbox("地図に表示する指標を選択", options=numeric_cols)
+            render_folium_map(df, metric_to_map)
+            with st.expander("地図表示データの詳細"):
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("このデータには地図に表示できる数値指標がありません。")
+    else:
+        st.info(f"{selected_year}年の{data_type}がありませんでした。")

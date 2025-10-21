@@ -206,6 +206,47 @@ def get_yearly_crime_summary() -> Optional[pd.DataFrame]:
     """
     return execute_query(query)
 
+@st.cache_data
+def get_available_years() -> list[int]:
+    """データが存在する年度のリストを取得"""
+    df = execute_query("SELECT DISTINCT year FROM population ORDER BY year DESC")
+    if df is not None and not df.empty:
+        return df['year'].tolist()
+    return []
+
+@st.cache_data
+def get_town_business_data(year: int) -> Optional[pd.DataFrame]:
+    """指定年度の町名ごと事業者数を取得"""
+    query = f"""
+        SELECT town_name, SUM(num_offices) as num_offices, SUM(num_employees) as num_employees
+        FROM business_stats 
+        WHERE year = {year}
+        GROUP BY town_name;
+    """
+    return execute_query(query)
+
+@st.cache_data
+def get_town_population_data(year: int) -> Optional[pd.DataFrame]:
+    """指定年度の町名ごと人口を取得"""
+    query = f"""
+        SELECT town_name, SUM(num_households) as num_households, SUM(num_population) as num_population
+        FROM population 
+        WHERE year = {year}
+        GROUP BY town_name;
+    """
+    return execute_query(query)
+
+@st.cache_data
+def get_town_crime_data(year: int) -> Optional[pd.DataFrame]:
+    """指定年度の町名ごと犯罪件数を取得"""
+    query = f"""
+        SELECT town_name, SUM(crime_count) as crime_count
+        FROM crimes 
+        WHERE year = {year}
+        GROUP BY town_name;
+    """
+    return execute_query(query)
+
 # --- AI関連 ---
 
 def generate_sql(question: str) -> Optional[str]:
