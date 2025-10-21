@@ -15,7 +15,8 @@ from view import (
     render_main_form,
     render_results,
     render_metrics_and_insights,
-    render_visualizations
+    render_visualizations,
+    render_basic_statistics_view
 )
 
 # ロギング設定
@@ -50,59 +51,66 @@ def initialize_session_state():
 def main():
     initialize_session_state()
     render_header()
-    st.markdown("---")
-    render_sample_questions()
-    render_main_form()
 
-    # 分析実行ボタンが押された、またはサンプル質問が選択された場合
-    if st.session_state.get("run_analysis_button"):
-        user_question = st.session_state.user_question
-        if not user_question:
-            st.warning("⚠️ 質問を入力してください。")
-            st.stop()
+    tab1, tab2 = st.tabs(["自然言語で分析", "基本統計データ"])
 
-        with st.spinner("🤖 AIがSQLを生成中..."):
-            generated_sql = generate_sql(user_question)
-        st.session_state.generated_sql = generated_sql
+    with tab1:
+        st.markdown("---")
+        render_sample_questions()
+        render_main_form()
 
-        if generated_sql:
-            with st.spinner("💾 データベースでクエリを実行中..."):
-                result_df = execute_query(generated_sql)
-            st.session_state.result_df = result_df
-            st.session_state.is_metric_question = detect_metric_question(user_question)
+        # 分析実行ボタンが押された、またはサンプル質問が選択された場合
+        if st.session_state.get("run_analysis_button"):
+            user_question = st.session_state.user_question
+            if not user_question:
+                st.warning("⚠️ 質問を入力してください。")
+                st.stop()
 
-            # 派生指標の計算
-            if st.session_state.is_metric_question and result_df is not None:
-                with st.spinner("📊 派生指標を計算中..."):
-                    query_params = extract_query_parameters(generated_sql, user_question)
-                    population_df = get_all_data('population')
-                    business_df = get_all_data('business_stats')
-                    if population_df is not None and business_df is not None:
-                        metrics_df = calculate_derived_metrics(
-                            business_df, population_df,
-                            year=query_params.get('year'),
-                            industry=query_params.get('industry'),
-                            town=query_params.get('town')
-                        )
-                        st.session_state.metrics_df = metrics_df
-                        st.session_state.query_params = query_params
-                    else:
-                        st.session_state.metrics_df = None
-            else:
-                st.session_state.metrics_df = None
-                st.session_state.query_params = {}
+            with st.spinner("🤖 AIがSQLを生成中..."):
+                generated_sql = generate_sql(user_question)
+            st.session_state.generated_sql = generated_sql
 
-    # --- 結果の表示 ---
-    render_results(st.session_state.result_df, st.session_state.generated_sql, st.session_state.user_question)
-    
-    if st.session_state.is_metric_question:
-        render_metrics_and_insights(
-            st.session_state.metrics_df, 
-            st.session_state.user_question, 
-            st.session_state.query_params
-        )
+            if generated_sql:
+                with st.spinner("💾 データベースでクエリを実行中..."):
+                    result_df = execute_query(generated_sql)
+                st.session_state.result_df = result_df
+                st.session_state.is_metric_question = detect_metric_question(user_question)
 
-    render_visualizations(st.session_state.result_df)
+                # 派生指標の計算
+                if st.session_state.is_metric_question and result_df is not None:
+                    with st.spinner("📊 派生指標を計算中..."):
+                        query_params = extract_query_parameters(generated_sql, user_question)
+                        population_df = get_all_data('population')
+                        business_df = get_all_data('business_stats')
+                        if population_df is not None and business_df is not None:
+                            metrics_df = calculate_derived_metrics(
+                                business_df, population_df,
+                                year=query_params.get('year'),
+                                industry=query_params.get('industry'),
+                                town=query_params.get('town')
+                            )
+                            st.session_state.metrics_df = metrics_df
+                            st.session_state.query_params = query_params
+                        else:
+                            st.session_state.metrics_df = None
+                else:
+                    st.session_state.metrics_df = None
+                    st.session_state.query_params = {}
+
+        # --- 結果の表示 ---
+        render_results(st.session_state.result_df, st.session_state.generated_sql, st.session_state.user_question)
+        
+        if st.session_state.is_metric_question:
+            render_metrics_and_insights(
+                st.session_state.metrics_df, 
+                st.session_state.user_question, 
+                st.session_state.query_params
+            )
+
+        render_visualizations(st.session_state.result_df)
+
+    with tab2:
+        render_basic_statistics_view()
 
     st.markdown("---")
     st.caption("💡 Powered by Google Gemini & DuckDB | 八王子市オープンデータを活用")

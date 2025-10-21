@@ -165,6 +165,47 @@ def execute_query(sql_query: str) -> Optional[pd.DataFrame]:
         logger.error(f"SQL実行エラー: {e}\nSQL: {sql_query}")
         return None
 
+@st.cache_data
+def get_yearly_business_summary() -> Optional[pd.DataFrame]:
+    """年度別の事業者数・従業員数を取得"""
+    query = """
+        SELECT 
+            year, 
+            SUM(num_offices) as total_offices, 
+            SUM(num_employees) as total_employees 
+        FROM business_stats 
+        GROUP BY year 
+        ORDER BY year DESC;
+    """
+    return execute_query(query)
+
+@st.cache_data
+def get_yearly_population_summary() -> Optional[pd.DataFrame]:
+    """年度別の世帯数・人口を取得"""
+    query = """
+        SELECT 
+            year, 
+            SUM(num_households) as total_households, 
+            SUM(num_population) as total_population 
+        FROM population 
+        GROUP BY year 
+        ORDER BY year DESC;
+    """
+    return execute_query(query)
+
+@st.cache_data
+def get_yearly_crime_summary() -> Optional[pd.DataFrame]:
+    """年度別の犯罪件数を取得"""
+    query = """
+        SELECT 
+            year, 
+            SUM(crime_count) as total_crimes
+        FROM crimes 
+        GROUP BY year 
+        ORDER BY year DESC;
+    """
+    return execute_query(query)
+
 # --- AI関連 ---
 
 def generate_sql(question: str) -> Optional[str]:

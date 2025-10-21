@@ -7,7 +7,10 @@ from utils import (
     generate_interpretation, 
     generate_ai_summary,
     get_top_bottom_insights,
-    load_geojson_data
+    load_geojson_data,
+    get_yearly_business_summary,
+    get_yearly_population_summary,
+    get_yearly_crime_summary
 )
 
 def render_header():
@@ -59,7 +62,6 @@ def render_sample_questions():
             st.rerun()
 
 
-
 def render_main_form():
     """ メインの質問入力フォームを表示 """
     st.text_input("🔍 分析したい内容を質問してください:", key="user_question")
@@ -83,7 +85,6 @@ def render_results(result_df, generated_sql, user_question):
         if ai_comment:
             with st.expander("🤖 AIによる分析コメント", expanded=True):
                 st.markdown(ai_comment)
-
 
 def render_metrics_and_insights(metrics_df, user_question, query_params):
     """ 派生指標とそれに関する洞察を表示 """
@@ -229,3 +230,52 @@ def render_visualizations(result_df):
                     st.warning("⚠️ 地図データと結合できる町名が見つかりませんでした。")
             else:
                 st.error("❌ 地図データの読み込みに失敗しました。")
+
+def render_basic_statistics_view():
+    """ 基本統計データを表示する """
+    st.subheader("八王子市 基本統計データ（年度別）")
+    st.markdown("八王子市全体の年度別主要統計データの推移です。")
+
+    # 事業所数・従業員数の推移
+    st.markdown("---")
+    st.subheader("🏢 事業所数・従業員数の推移")
+    business_df = get_yearly_business_summary()
+    if business_df is not None and not business_df.empty:
+        business_df_chart = business_df.set_index('year')
+        st.line_chart(business_df_chart)
+        with st.expander("詳細データ表示"):
+            st.dataframe(business_df.style.format({
+                "total_offices": "{:,} 所",
+                "total_employees": "{:,} 人"
+            }), use_container_width=True, hide_index=True)
+    else:
+        st.warning("事業所データがありませんでした。")
+
+    # 世帯数・人口の推移
+    st.markdown("---")
+    st.subheader("👨‍👩‍👧‍👦 世帯数・人口の推移")
+    population_df = get_yearly_population_summary()
+    if population_df is not None and not population_df.empty:
+        population_df_chart = population_df.set_index('year')
+        st.line_chart(population_df_chart)
+        with st.expander("詳細データ表示"):
+            st.dataframe(population_df.style.format({
+                "total_households": "{:,} 世帯",
+                "total_population": "{:,} 人"
+            }), use_container_width=True, hide_index=True)
+    else:
+        st.warning("人口データがありませんでした。")
+
+    # 犯罪件数の推移
+    st.markdown("---")
+    st.subheader("🚓 犯罪件数の推移")
+    crime_df = get_yearly_crime_summary()
+    if crime_df is not None and not crime_df.empty:
+        crime_df_chart = crime_df.set_index('year')
+        st.line_chart(crime_df_chart)
+        with st.expander("詳細データ表示"):
+            st.dataframe(crime_df.style.format({
+                "total_crimes": "{:,} 件"
+            }), use_container_width=True, hide_index=True)
+    else:
+        st.warning("犯罪データがありませんでした。")
