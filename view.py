@@ -39,11 +39,11 @@ def render_sample_questions():
 
         # --- 新規追加: 犯罪関連を含む統計的に興味深い質問 ---
         "🔍 世帯数あたりの犯罪発生率": "2020年の町名ごとの世帯数あたり犯罪発生率を教えて",
-        "🍽️ 飲食業と犯罪件数の関係": "飲食業の事業所数が多い町ほど犯罪件数は多いですか？",
-        "📊 犯罪件数の推移": "2010年から2020年の間で犯罪件数が最も増えた町を教えて",
+        "🍽️ 飲食業と犯罪件数の関係": "2024年の飲食業の事業所数が多い町ほど犯罪件数は多いですか？",
+        "📊 犯罪件数の推移": "2010年から2020年の間で犯罪件数が最も増えた町上位10件を教えて",
         "🏢 犯罪と産業構造": "犯罪件数が多い地域ではどの産業の事業所が多いですか？",
         "🏙️ 犯罪と世帯数の関係": "世帯数が多い地域ほど犯罪件数が多い傾向はありますか？",
-        "🔎 治安改善エリア": "ここ5年間で犯罪件数が減少している地域とその比率を教えて",
+        "🔎 治安改善エリア": "2020年から2024年の間で犯罪件数が減少している地域とその比率を教えて",
     }
 
     # 選択メニュー
@@ -78,9 +78,11 @@ def render_results(result_df, generated_sql, user_question):
         st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
 
     if result_df is not None and not result_df.empty:
-        with st.expander("🤖 AIによる分析コメント", expanded=True):
+        with st.spinner("🤖 AIが結果を分析中..."):
             ai_comment = generate_ai_summary(result_df, user_question)
-            st.markdown(ai_comment)
+        if ai_comment:
+            with st.expander("🤖 AIによる分析コメント", expanded=True):
+                st.markdown(ai_comment)
 
 
 def render_metrics_and_insights(metrics_df, user_question, query_params):
