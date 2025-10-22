@@ -50,34 +50,30 @@ def render_header():
         """ ) # Corrected: Removed unnecessary f-string prefix and escaped quotes within markdown
 
 def render_sample_questions():
-    """ サンプル質問の選択UIを表示（犯罪データ対応版） """
-    st.subheader("💡 サンプル質問を選択")
+    """ サンプル質問をボタンのグリッドとして表示 """
+    st.subheader("💡 サンプル質問をワンクリック")
 
     sample_questions = {
-        "🏗️ 建設業トップ10": "2015年の町名毎の建設業の事業所数トップ10",
+        "🏗️ 建設業トップ10": "町名毎の建設業の事業所数トップ10",
         "📈 従業員数推移": "旭町の年度別の全従業員数の推移",
-        "🏘️ 事業所密度分析": "2024年の町名毎の事業所密度を教えて",
-
-        # --- 新規追加: 犯罪関連を含む統計的に興味深い質問 ---
-        "🔍 世帯数あたりの犯罪発生率": "2020年の町名ごとの世帯数あたり犯罪発生率を教えて",
-        "🍽️ 飲食業と犯罪件数の関係": "2024年の飲食業の事業所数が多い町ほど犯罪件数は多いですか？",
+        "🏘️ 事業所密度分析": "町名毎の事業所密度を教えて",
+        "🔍 世帯数あたり犯罪発生率": "町名ごとの世帯数あたり犯罪発生率を教えて",
+        "🍽️ 飲食業と犯罪件数の関係": "飲食業の事業所数が多い町ほど犯罪件数は多いですか？",
         "📊 犯罪件数の推移": "2010年から2020年の間で犯罪件数が最も増えた町上位10件を教えて",
         "🏢 犯罪と産業構造": "犯罪件数が多い地域ではどの産業の事業所が多いですか？",
         "🏙️ 犯罪と世帯数の関係": "世帯数が多い地域ほど犯罪件数が多い傾向はありますか？",
         "🔎 治安改善エリア": "2020年から2024年の間で犯罪件数が減少している地域とその比率を教えて",
+        "💻 IT企業の増加": "2015年から2024年で、情報通信業の事業所数が最も増加した町は？",
+        "💪 働き手の多い町": "人口あたりの従業者数が多い町はどこ？",
+        "🛍️ 小売と万引き": "卸売業・小売業の事業所数と万引きの件数に関係はありますか？",
     }
 
-    # 選択メニュー
-    selected_question = st.selectbox(
-        "質問例から選んでみましょう：",
-        options=["（選択しない）"] + list(sample_questions.keys())
-    )
-
-    # 実行ボタン
-    if selected_question != "（選択しない）":
-        if st.button("🧠 この質問を登録"):
-            st.session_state.user_question = sample_questions[selected_question]
-            st.rerun()
+    cols = st.columns(4)
+    for i, (key, value) in enumerate(sample_questions.items()):
+        with cols[i % 4]:
+            if st.button(key, key=f"sample_q_{i}", help=value):
+                st.session_state.user_question = value
+                st.rerun()
 
 
 def render_main_form():
