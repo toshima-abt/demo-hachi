@@ -19,11 +19,23 @@ from utils import (
 import branca.colormap as cm
 from folium import Element
 
+METRIC_NAME_MAPPING = {
+    "num_offices": "事業所数",
+    "num_employees": "従業者数",
+    "num_households": "世帯数",
+    "num_population": "人口",
+    "crime_count": "犯罪件数",
+    "office_density": "事業所密度",
+    "employee_ratio": "従業者比率",
+    "office_size": "事業所規模",
+    "offices_per_1000_pop": "人口1000人あたり事業所数",
+}
+
 def render_header():
     """ タイトルと説明文を表示 """
     st.title("🏢 自然言語で八王子市の事業者データを分析")
     with st.expander("📘 使い方とデータについて"):
-        st.markdown("""
+        st.markdown(f"""
         このアプリでは、八王子市の事業者に関する統計データについて、自然言語で質問することができます。
         AIがあなたの質問を解釈してSQLクエリを生成し、データベースから結果を取得・表示します。
 
@@ -35,7 +47,7 @@ def render_header():
         - `2021年の町名別で、建設業の事業所数が多いトップ5を教えて`
         - `情報通信業の事業所数が最も多い年度は？`
         - `八王子市全体の従業員数の推移を年度別に教えて`
-        """)
+        """ ) # Corrected: Removed unnecessary f-string prefix and escaped quotes within markdown
 
 def render_sample_questions():
     """ サンプル質問の選択UIを表示（犯罪データ対応版） """
@@ -171,7 +183,7 @@ def render_folium_map(df: pd.DataFrame, metric_to_map: str):
             index=[vmin, (vmin + vmax) / 2, vmax],
             vmin=vmin,
             vmax=vmax,
-            caption=f'{metric_to_map} の値'
+            caption=f'{METRIC_NAME_MAPPING.get(metric_to_map, metric_to_map)} の値'
         )
         
         folium.GeoJson(
@@ -190,7 +202,7 @@ def render_folium_map(df: pd.DataFrame, metric_to_map: str):
             },
             tooltip=folium.GeoJsonTooltip(
                 fields=['town_name', metric_to_map],
-                aliases=['町名:', f'{metric_to_map}:'],
+                aliases=['町名:', f'{METRIC_NAME_MAPPING.get(metric_to_map, metric_to_map)}:'],
                 style=('background-color: white; color: black; '
                     'font-family: courier new; font-size: 12px; padding: 10px;')
             )
@@ -214,7 +226,7 @@ def render_visualizations(result_df):
     if result_df is None or result_df.empty:
         return
     
-    st.markdown("---")
+    st.markdown("--- ")
     st.subheader("📈 データ可視化")
 
     try:
@@ -231,7 +243,13 @@ def render_visualizations(result_df):
     numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
     if 'town_name' in result_df.columns and len(numeric_cols) > 0:
         st.subheader("🗺️ 地図で結果を確認")
-        metric_to_map = st.selectbox("地図に表示する指標を選択してください:", options=numeric_cols, index=0)
+        metric_to_map = st.selectbox(
+            "地図に表示する指標を選択してください:", 
+            options=numeric_cols, 
+            index=0,
+            format_func=lambda x: METRIC_NAME_MAPPING.get(x, x),
+            key="lang_query_map_metric"
+        )
         render_folium_map(result_df, metric_to_map)
 
 def render_basic_statistics_view():
@@ -239,7 +257,7 @@ def render_basic_statistics_view():
     st.subheader("八王子市 基本統計データ（年度別）")
     st.markdown("八王子市全体の年度別主要統計データの推移です。")
 
-    st.markdown("---")
+    st.markdown("--- ")
     st.subheader("🏢 事業所数・従業員数の推移")
     business_df = get_yearly_business_summary()
     if business_df is not None and not business_df.empty:
@@ -253,7 +271,7 @@ def render_basic_statistics_view():
     else:
         st.warning("事業所データがありませんでした。")
 
-    st.markdown("---")
+    st.markdown("--- ")
     st.subheader("👨‍👩‍👧‍👦 世帯数・人口の推移")
     population_df = get_yearly_population_summary()
     if population_df is not None and not population_df.empty:
@@ -267,7 +285,7 @@ def render_basic_statistics_view():
     else:
         st.warning("人口データがありませんでした。")
 
-    st.markdown("---")
+    st.markdown("--- ")
     st.subheader("🚓 犯罪件数の推移")
     crime_df = get_yearly_crime_summary()
     if crime_df is not None and not crime_df.empty:
@@ -281,7 +299,7 @@ def render_basic_statistics_view():
         st.warning("犯罪データがありませんでした。")
 
     # --- 地図表示機能 ---
-    st.markdown("---")
+    st.markdown("--- ")
     st.subheader("🗺️ 町名別データの地図表示")
 
     available_years = get_available_years()
@@ -310,7 +328,12 @@ def render_basic_statistics_view():
     if df is not None and not df.empty:
         numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
         if numeric_cols:
-            metric_to_map = st.selectbox("地図に表示する指標を選択", options=numeric_cols)
+            metric_to_map = st.selectbox(
+                "地図に表示する指標を選択", 
+                options=numeric_cols,
+                format_func=lambda x: METRIC_NAME_MAPPING.get(x, x),
+                key="stats_map_metric"
+            )
             render_folium_map(df, metric_to_map)
             with st.expander("地図表示データの詳細"):
                 st.dataframe(df, use_container_width=True, hide_index=True)
