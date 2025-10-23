@@ -16,7 +16,8 @@ from view import (
     render_results,
     render_metrics_and_insights,
     render_visualizations,
-    render_basic_statistics_view
+    render_basic_statistics_view,
+    render_about_page
 )
 
 # ロギング設定
@@ -52,7 +53,7 @@ def main():
     initialize_session_state()
     render_header()
 
-    tab1, tab2 = st.tabs(["自然言語で分析", "基本統計データ"])
+    tab1, tab2, tab3 = st.tabs(["自然言語で分析", "基本統計データ", "このサービスについて"])
 
     with tab1:
         st.markdown("---")
@@ -111,6 +112,9 @@ def main():
 
     with tab2:
         render_basic_statistics_view()
+    
+    with tab3:
+        render_about_page()
 
     st.markdown("---")
     st.caption("💡 Powered by Google Gemini & DuckDB | 八王子市オープンデータを活用")
