@@ -42,6 +42,7 @@ def render_header():
         **利用可能なデータ**
         - **事業者統計データ (`business_stats`)**: 年度, 町名, 事業種別, 事業所数, 従業者数
         - **人口統計データ (`population`)**: 年度, 町名, 世帯数, 人口数, 男性数, 女性数
+        - **犯罪統計データ (`crime_stats`)**: 年度, 町名, 犯罪大分類, 犯罪小分類, 犯罪件数
 
         **質問の例**
         - `2021年の町名別で、建設業の事業所数が多いトップ5を教えて`
@@ -89,7 +90,31 @@ def render_results(result_df, generated_sql, user_question):
 
     if result_df is not None and not result_df.empty:
         st.success(f"✅ クエリ結果 ({len(result_df)}行)")
-        st.dataframe(result_df, use_container_width=True)
+        
+        # 表示用にカラム名を日本語に置換
+        display_df = result_df.copy()
+        rename_map = {
+            'year': '年度',
+            'town_name': '町名',
+            'industry_name': '事業種別',
+            'major_crime': '犯罪大分類',
+            'minor_crime': '犯罪小分類',
+            'num_offices': '事業所数',
+            'num_employees': '従業者数',
+            'num_households': '世帯数',
+            'num_population': '人口',
+            'crime_count': '犯罪件数'
+        }
+        
+        new_columns = {}
+        for col in display_df.columns:
+            new_col = col
+            for en, jp in rename_map.items():
+                new_col = new_col.replace(en, jp)
+            new_columns[col] = new_col
+        
+        display_df = display_df.rename(columns=new_columns)
+        st.dataframe(display_df, use_container_width=True)
     elif result_df is not None:
         st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
 
