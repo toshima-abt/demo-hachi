@@ -365,12 +365,21 @@ def render_basic_statistics_view():
     
 def render_about_page():
     """「このサービスについて」ページを表示する"""
+
+    # SVGファイルを読み込み
+    with open("images/abt_logo.svg", "r") as f:
+        svg_content = f.read()
+
     st.subheader("🏢 運営会社")
-    st.image("images/abt_logo.svg", width=200)
+    st.markdown(
+        f'''<a href="https://abt.jp" target="_blank" alt="株式会社アプト"><div style="width: 200px; height: 100px;margin: 1em;">{svg_content}</div></a>''',
+        unsafe_allow_html=True
+    )
     st.markdown("""
         **株式会社アプト**
+        - Webサイト: [https://abt.jp](https://abt.jp)
         - 〒192-0075 東京都八王子市南新町4-14 TMライトハウス 104
-        - 連絡先: [お問い合わせ|株式会社アプト](https://www.abt.jp/read.php?id=3)
+        - 連絡先: [お問い合わせ|株式会社アプト](https://abt.jp/read.php?id=3)
     """ )
 
     st.markdown("---")
