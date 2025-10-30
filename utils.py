@@ -2,14 +2,22 @@ import streamlit as st
 import duckdb
 import pandas as pd
 import google.generativeai as genai
+from openai import OpenAI
 import geopandas as gpd
-from typing import Optional
+from typing import Optional, Any
 import logging
 import re
 import json
-import os
 
 logger = logging.getLogger(__name__)
+
+# --- モデル設定 ---
+MODEL_CONFIG = {
+    "gemini-flash-latest": {"provider": "google", "label": "Gemini Flash (Google)"},
+#    "gemini-2.5-pro": {"provider": "google", "label": "Gemini 2.5 Pro (Google)"},
+#    "x-ai/grok4-code-fast-1": {"provider": "openrouter", "label": "Grok Code Fast (xAI/OpenRouter)"},
+    "z-ai/glm-4.5-air:free": {"provider": "openrouter", "label": "Z.AI:GLM 4.5 Air (OpenRouter)"},
+}
 
 # --- 定数定義 ---
 TABLE_SCHEMA = """
@@ -104,6 +112,121 @@ SQLクエリのみを生成し、他の説明文は含めないでください�
 
 ### SQLクエリ（SQLのみ出力、説明不要）
 """
+
+# --- AI関連 ---
+
+def get_generative_model(model_name: str) -> Optional[Any]:
+    """選択されたモデル名に基づいて、設定済みの生成AIモデルクライアントを返す"""
+    if model_name not in MODEL_CONFIG:
+        st.error(f"❌ 不明なモデル名です: {model_name}")
+        return None
+
+    config = MODEL_CONFIG[model_name]
+    provider = config["provider"]
+
+    try:
+        if provider == "google":
+            api_key = st.secrets.get("GOOGLE_API_KEY")
+            if not api_key:
+                st.error("⚠️ GOOGLE_API_KEYが設定されていません。")
+                return None
+            genai.configure(api_key=api_key)
+            # Googleモデルはモデル名で初期化
+            return genai.GenerativeModel(model_name)
+        
+        elif provider == "openrouter":
+            api_key = st.secrets.get("OPENROUTER_API_KEY")
+            if not api_key:
+                st.error("⚠️ OPENROUTER_API_KEYが設定されていません。")
+                return None
+            # OpenRouterモデルはクライアントを返す（モデル名は後で指定）
+            return OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+        else:
+            st.error(f"❌ 不明なプロバイダーです: {provider}")
+            return None
+    except Exception as e:
+        st.error(f"❌ モデルの初期化中にエラーが発生しました: {e}")
+        logger.error(f"モデル初期化エラー ({model_name}): {e}")
+        return None
+
+def generate_sql(question: str, model_name: str) -> Optional[str]:
+    """ユーザーの質問からSQLを生成する"""
+    model_client = get_generative_model(model_name)
+    if model_client is None:
+        return None
+        
+    try:
+        prompt = PROMPT_TEMPLATE.format(user_question=question)
+        
+        provider = MODEL_CONFIG[model_name]["provider"]
+
+        if provider == "google":
+            response = model_client.generate_content(prompt)
+            sql_query = response.text
+        elif provider == "openrouter":
+            response = model_client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            sql_query = response.choices[0].message.content
+        else:
+            st.error(f"❌ サポートされていないプロバイダーです: {provider}")
+            return None
+
+        sql_query = sql_query.strip().replace("```sql", "").replace("```", "").strip()
+        logger.info(f"生成されたSQL ({model_name}): {sql_query}")
+        return sql_query
+
+    except Exception as e:
+        st.error(f"❌ SQLの生成に失敗しました: {e}")
+        logger.error(f"SQL生成エラー ({model_name}): {e}")
+        return None
+
+def generate_ai_summary(df: pd.DataFrame, user_question: str, model_name: str) -> str:
+    """分析結果をもとにAIが自然言語で傾向を説明する"""
+    if df is None or df.empty:
+        return "データが見つかりませんでした。"
+
+    model_client = get_generative_model(model_name)
+    if model_client is None:
+        return "AIモデルの初期化に失敗しました。"
+
+    try:
+        sample_data = df.head(30).to_dict(orient="records")
+        data_str = json.dumps(sample_data, ensure_ascii=False)
+
+        prompt = f"""
+次の質問とデータに基づいて、八王子市に関する分析結果を日本語で説明してください。
+質問: {user_question}
+データサンプル: {data_str}
+
+出力条件:
+- 一般利用者にも分かりやすく、2〜4文で要約。
+- 主な傾向・特徴・注目すべき点を述べる。
+- 数値や町名が明確な場合はそれを挙げる。
+"""
+        provider = MODEL_CONFIG[model_name]["provider"]
+
+        if provider == "google":
+            response = model_client.generate_content(prompt)
+            summary = response.text
+        elif provider == "openrouter":
+            response = model_client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary = response.choices[0].message.content
+        else:
+            return f"サポートされていないプロバイダーです: {provider}"
+            
+        return summary.strip()
+
+    except Exception as e:
+        logger.error(f"AI要約生成エラー ({model_name}): {e}")
+        return "AIによる分析コメントの生成に失敗しました。"
 
 # --- データ関連 ---
 
@@ -247,22 +370,6 @@ def get_town_crime_data(year: int) -> Optional[pd.DataFrame]:
         GROUP BY town_name;
     """
     return execute_query(query)
-
-# --- AI関連 ---
-
-def generate_sql(question: str) -> Optional[str]:
-    """ユーザーの質問からSQLを生成する"""
-    try:
-        model = genai.GenerativeModel('gemini-flash-latest')
-        prompt = PROMPT_TEMPLATE.format(user_question=question)
-        response = model.generate_content(prompt)
-        sql_query = response.text.strip().replace("```sql", "").replace("```", "").strip()
-        logger.info(f"生成されたSQL: {sql_query}")
-        return sql_query
-    except Exception as e:
-        st.error(f"❌ SQLの生成に失敗しました: {e}")
-        logger.error(f"SQL生成エラー: {e}")
-        return None
 
 def extract_query_parameters(sql_query: str, user_question: str) -> dict:
     """SQLクエリとユーザー質問から年度・業種・町名を抽出"""
@@ -408,34 +515,3 @@ def get_top_bottom_insights(metrics_df: pd.DataFrame, metric_name: str, display_
     except Exception as e:
         logger.error(f"洞察生成エラー: {e}")
         return ""
-
-
-def generate_ai_summary(df: pd.DataFrame, user_question: str) -> str:
-    """分析結果をもとにGeminiが自然言語で傾向を説明する"""
-    if df is None or df.empty:
-        return "データが見つかりませんでした。"
-
-    try:
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        model = genai.GenerativeModel('gemini-flash-latest')
-
-        # DataFrameをコンパクトに変換（最大30行）
-        sample_data = df.head(30).to_dict(orient="records")
-        data_str = json.dumps(sample_data, ensure_ascii=False)
-
-        prompt = f"""
-次の質問とデータに基づいて、八王子市に関する分析結果を日本語で説明してください。
-質問: {user_question}
-データサンプル: {data_str}
-
-出力条件:
-- 一般利用者にも分かりやすく、2〜4文で要約。
-- 主な傾向・特徴・注目すべき点を述べる。
-- 数値や町名が明確な場合はそれを挙げる。
-"""
-
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        logger.error(f"AI要約生成エラー: {e}")
-        return "AIによる分析コメントの生成に失敗しました。"

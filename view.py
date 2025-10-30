@@ -64,7 +64,7 @@ def render_sample_questions():
         "🏢 犯罪と産業構造": "犯罪件数が多い地域ではどの産業の事業所が多いですか？",
         "🏙️ 犯罪と世帯数の関係": "世帯数が多い地域ほど犯罪件数が多い傾向はありますか？",
         "🔎 治安改善エリア": "2020年から2024年の間で犯罪件数が減少している地域とその比率を教えて",
-        "💻 IT企業の増加": "2015年から2024年で、情報通信業の事業所数が最も増加した町は？",
+        "💻 IT企業の増加": "2015年から2024年で、情報通信業の事業所数が増加した町は？",
         "💪 働き手の多い町": "人口あたりの従業者数が多い町はどこ？",
         "🛍️ 小売と万引き": "卸売業・小売業の事業所数と万引きの件数に関係はありますか？",
     }
@@ -82,7 +82,7 @@ def render_main_form():
     st.text_input("🔍 分析したい内容を質問してください:", key="user_question")
     st.button("🚀 分析を実行", type="primary", key="run_analysis_button")
 
-def render_results(result_df, generated_sql, user_question):
+def render_results(result_df, generated_sql, user_question, model_name):
     """ SQLとクエリ結果のデータフレームを表示 """
     if generated_sql:
         with st.expander("📝 生成されたSQLクエリ", expanded=False):
@@ -119,8 +119,8 @@ def render_results(result_df, generated_sql, user_question):
         st.warning("⚠️ 結果が0件でした。質問を変えてみてください。")
 
     if result_df is not None and not result_df.empty:
-        with st.spinner("🤖 AIが結果を分析中..."):
-            ai_comment = generate_ai_summary(result_df, user_question)
+        with st.spinner(f"🤖 AI ({model_name}) が結果を分析中..."):
+            ai_comment = generate_ai_summary(result_df, user_question, model_name)
         if ai_comment:
             with st.expander("🤖 AIによる分析コメント", expanded=True):
                 st.markdown(ai_comment)

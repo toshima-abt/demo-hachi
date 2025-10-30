@@ -1,5 +1,4 @@
 import streamlit as st
-import google.generativeai as genai
 import logging
 from utils import (
     generate_sql,
@@ -7,7 +6,8 @@ from utils import (
     detect_metric_question,
     extract_query_parameters,
     get_all_data,
-    calculate_derived_metrics
+    calculate_derived_metrics,
+    MODEL_CONFIG  # MODEL_CONFIGをインポート
 )
 from view import (
     render_header,
@@ -24,14 +24,27 @@ from view import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- ページ設定とAPIキー設定 ---
+# --- ページ設定 ---
 st.set_page_config(page_title="八王子市 事業者数分析", layout="wide")
-try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except Exception as e:
-    st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsに 'GOOGLE_API_KEY' を設定してください。")
-    logger.error(f"API設定エラー: {e}")
-    st.stop()
+
+# --- サイドバー ---
+st.sidebar.title("⚙️ 設定")
+
+# モデル選択
+# utilsからインポートしたMODEL_CONFIGを使って選択肢を動的に生成
+model_options = {config["label"]: model_name for model_name, config in MODEL_CONFIG.items()}
+
+selected_model_label = st.sidebar.selectbox(
+    "🤖 AIモデルを選択",
+    options=list(model_options.keys()),
+    help="質問を解釈し、SQLを生成するAIモデルを選択します。"
+)
+
+# ラベルからモデル名を取得してセッション状態に保存
+st.session_state.model_name = model_options[selected_model_label]
+
+st.sidebar.markdown("---")
+st.sidebar.info("APIキーはStreamlitのSecretsに設定してください。\n- `GOOGLE_API_KEY`\n- `OPENROUTER_API_KEY`")
 
 # --- セッション状態の初期化 ---
 def initialize_session_state():
@@ -60,15 +73,14 @@ def main():
         render_sample_questions()
         render_main_form()
 
-        # 分析実行ボタンが押された、またはサンプル質問が選択された場合
         if st.session_state.get("run_analysis_button"):
             user_question = st.session_state.user_question
             if not user_question:
                 st.warning("⚠️ 質問を入力してください。")
                 st.stop()
 
-            with st.spinner("🤖 AIがSQLを生成中..."):
-                generated_sql = generate_sql(user_question)
+            with st.spinner(f"🤖 AI ({st.session_state.model_name}) がSQLを生成中..."):
+                generated_sql = generate_sql(user_question, st.session_state.model_name)
             st.session_state.generated_sql = generated_sql
 
             if generated_sql:
@@ -77,7 +89,6 @@ def main():
                 st.session_state.result_df = result_df
                 st.session_state.is_metric_question = detect_metric_question(user_question)
 
-                # 派生指標の計算
                 if st.session_state.is_metric_question and result_df is not None:
                     with st.spinner("📊 派生指標を計算中..."):
                         query_params = extract_query_parameters(generated_sql, user_question)
@@ -98,8 +109,7 @@ def main():
                     st.session_state.metrics_df = None
                     st.session_state.query_params = {}
 
-        # --- 結果の表示 ---
-        render_results(st.session_state.result_df, st.session_state.generated_sql, st.session_state.user_question)
+        render_results(st.session_state.result_df, st.session_state.generated_sql, st.session_state.user_question, st.session_state.model_name)
         
         if st.session_state.is_metric_question:
             render_metrics_and_insights(
@@ -117,7 +127,7 @@ def main():
         render_about_page()
 
     st.markdown("---")
-    st.caption("💡 Powered by Google Gemini & DuckDB | 八王子市オープンデータを活用")
+    st.caption(f"💡 Powered by {MODEL_CONFIG[st.session_state.model_name]['label']} & DuckDB | 八王子市オープンデータを活用")
 
 if __name__ == "__main__":
     main()
