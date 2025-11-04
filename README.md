@@ -66,8 +66,8 @@ GoogleのGemini APIを利用してユーザーの質問をDuckDBのSQLクエリ�
 ### 2. リポジトリのクローン
 
 ```bash
-git clone https://github.com/your-username/your-repository-name.git
-cd your-repository-name
+git clone git@github.com:toshima-abt/demo-hachi.git
+cd demo-hachi
 ```
 
 ### 3. 必要なライブラリのインストール
@@ -75,7 +75,7 @@ cd your-repository-name
 `uv` を使って、`pyproject.toml` と `uv.lock` から依存関係をインストールします。
 
 ```bash
-uv pip sync
+uv sync
 ```
 
 ### 4. APIキーの設定
@@ -91,7 +91,7 @@ GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
 ### 5. アプリケーションの実行
 
 ```bash
-streamlit run app.py
+uv run streamlit run app.py
 ```
 
 ## 免責事項
