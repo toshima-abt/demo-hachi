@@ -17,6 +17,7 @@ MODEL_CONFIG = {
 #    "gemini-2.5-pro": {"provider": "google", "label": "Gemini 2.5 Pro (Google)"},
 #    "x-ai/grok4-code-fast-1": {"provider": "openrouter", "label": "Grok Code Fast (xAI/OpenRouter)"},
     "z-ai/glm-4.5-air:free": {"provider": "openrouter", "label": "Z.AI:GLM 4.5 Air (OpenRouter)"},
+#    "moonshotai/kimi-k2:free": {"provider": "openrouter", "label": "Kimi K2 (OpenRouter)"},
 }
 
 # --- 定数定義 ---
@@ -106,6 +107,7 @@ SQLクエリのみを生成し、他の説明文は含めないでください�
 - 質問内容に年度指定がない場合、最新年度（2024年）を対象としてください
 - LIMIT句はデフォルトで120を指定（明示的に指定がある場合はそちらを優先する）
 - 日本語のカラム名は英語名に変換してください（例: 事業所数 → num_offices）
+- 取得結果には必ず数値カラムを含めてください（例: num_population, crime_countなど）
 
 ### ユーザーの質問
 {{user_question}}
